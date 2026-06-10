@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VWAP Copilot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    --bg: #131722; --panel: #1c2230; --border: #2a3142; --text: #d6dbe6;
+    --muted: #7c8597; --green: #26a69a; --red: #ef5350; --blue: #2bc4e2;
+    --yellow: #e6c300; --accent: #3d6df2;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 18px;
+           border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
+  .pill.on  { color: var(--green); }
+  .pill.off { color: var(--red); }
+  #killswitch { margin-left: auto; background: var(--red); color: #fff; border: 0;
+                padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+              color: var(--muted); margin-bottom: 8px; }
+  #chart-wrap { grid-column: 1; }
+  #chart { height: 460px; }
+  #symtabs { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  #symtabs button { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+                    padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+  #symtabs button.active { border-color: var(--blue); color: var(--blue); }
+  aside { display: flex; flex-direction: column; gap: 12px; }
+  .signal { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
+  .signal .head { display: flex; justify-content: space-between; font-weight: 600; }
+  .signal .conf { color: var(--blue); }
+  .signal .levels { display: flex; gap: 14px; color: var(--muted); font-size: 12.5px; margin: 4px 0; }
+  .signal .reasons { font-size: 12px; color: var(--muted); }
+  .signal .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .signal .actions button { flex: 1; padding: 6px 0; border: 0; border-radius: 6px;
+                            cursor: pointer; font-weight: 600; }
+  .buy { background: var(--green); color: #fff; }
+  .ign { background: var(--bg); color: var(--muted); border: 1px solid var(--border) !important; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+  td { padding: 5px 6px; border-top: 1px solid var(--border); }
+  td.pos { color: var(--green); } td.neg { color: var(--red); }
+  .pnl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .pnl-cell { background: var(--bg); border-radius: 6px; padding: 8px; text-align: center; }
+  .pnl-cell .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .pnl-cell .value { font-size: 17px; font-weight: 600; }
+  .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
+  .settings-row input { width: 80px; background: var(--bg); color: var(--text);
+                        border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
+  .closebtn { background: var(--bg); border: 1px solid var(--border); color: var(--red);
+              border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>VWAP Event Trading Copilot</h1>
+  <span id="ibkr-pill" class="pill off">IBKR …</span>
+  <span id="auto-pill" class="pill off">AUTO …</span>
+  <span id="risk-pill" class="pill">—</span>
+  <button id="killswitch" onclick="disableAuto()">Disable Automation</button>
+</header>
+<main>
+  <div>
+    <div class="panel" id="chart-wrap">
+      <h2>Kenny Chart — <span style="color:var(--blue)">VWAP</span> / <span style="color:var(--yellow)">Prior-Day VWAP</span></h2>
+      <div id="symtabs"></div>
+      <div id="chart"></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>Open Trades</h2>
+      <table id="open-trades">
+        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&amp;L</th><th>Conf</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="open-empty" class="empty">No open trades.</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>P&amp;L</h2>
+      <div class="pnl-grid" id="pnl-grid"></div>
+      <table id="pnl-metrics" style="margin-top:10px">
+        <thead><tr><th></th><th>Trades</th><th>Win rate</th><th>Avg win</th><th>Avg loss</th><th>Profit factor</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <aside>
+    <div class="panel">
+      <h2>Pending Signals</h2>
+      <div id="pending"></div>
+    </div>
+    <div class="panel">
+      <h2>Rules</h2>
+      <div id="settings"></div>
+    </div>
+  </aside>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
