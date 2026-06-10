@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,9 +38,9 @@ class Settings(BaseSettings):
     short_extension_pct: float = 1.0      # HOD must be >= this % above VWAP before a short
     min_reward_risk: float = 1.5          # skip signals with worse reward:risk
 
-    # Dashboard
-    api_host: str = "127.0.0.1"
-    api_port: int = 8000
+    # Dashboard (Railway sets PORT; bind 0.0.0.0 in production)
+    api_host: str = "0.0.0.0"
+    api_port: int = Field(default=8000, validation_alias=AliasChoices("API_PORT", "PORT"))
 
 
 settings = Settings()
