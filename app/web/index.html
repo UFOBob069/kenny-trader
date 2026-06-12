@@ -19,13 +19,18 @@
   .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
   .pill.on  { color: var(--green); }
   .pill.off { color: var(--red); }
-  #cap-toggle, #auto-toggle { border: 0; padding: 6px 14px; border-radius: 6px;
+  #auto-toggle { border: 0; padding: 6px 14px; border-radius: 6px;
                  cursor: pointer; font-weight: 600; color: #fff; }
-  #cap-toggle { margin-left: auto; }
-  #cap-toggle.off { background: var(--green); }
-  #cap-toggle.on  { background: #5a6a8a; }
   #auto-toggle.off { background: var(--green); }
   #auto-toggle.on  { background: var(--red); }
+  .cap-select { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+  .cap-select .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; text-transform: uppercase;
+                     letter-spacing: .04em; }
+  .cap-select button { background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+                      padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .cap-select button.active { border-color: var(--blue); color: var(--blue); font-weight: 600; }
+  .signal .sym-link { cursor: pointer; color: var(--blue); }
+  .signal .sym-link:hover { text-decoration: underline; }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
@@ -84,9 +89,8 @@
   <h1>VWAP Event Trading Copilot</h1>
   <span id="broker-pill" class="pill off">Broker …</span>
   <span id="auto-pill" class="pill off">AUTO …</span>
-  <span id="cap-pill" class="pill on">Cap …</span>
   <span id="risk-pill" class="pill">—</span>
-  <button id="cap-toggle" class="on" onclick="toggleMarketCapFilter()">Disable Cap Filter</button>
+  <div id="cap-select" class="cap-select" aria-label="Minimum market cap filter"></div>
   <button id="auto-toggle" class="off" onclick="toggleAuto()">Enable Auto-Trade</button>
 </header>
 <main>
@@ -139,6 +143,6 @@
     </div>
   </aside>
 </main>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>

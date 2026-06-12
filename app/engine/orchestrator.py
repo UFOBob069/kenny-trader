@@ -89,22 +89,44 @@ class Orchestrator:
         self.scan_universe = await self.scanner.filtered_universe(
             self.rules.min_market_cap_floor_usd,
         )
+
+        # Expire pending signals for symbols dropped by the scan / cap filter.
+        for sig in list(self.store.pending_signals()):
+            if sig.symbol.upper() not in self.scan_universe:
+                sig.status = SignalStatus.EXPIRED
+                self.store.save_signal(sig)
+                log.info("Expired stale signal for %s", sig.symbol)
+
+        ui_symbols: dict[str, str] = dict(self.scan_universe)
+        for sym in self.detectors:
+            ui_symbols.setdefault(sym, self.scan_universe.get(sym, "chart"))
+
         self.watchlist = {}
-        for sym in self.scanner.rank_universe(self.scan_universe):
-            catalyst = self.scan_universe.get(sym, "news")
+        for sym in self.scanner.rank_universe(ui_symbols):
+            catalyst = ui_symbols.get(sym, "news")
             item = await self.scanner.watch_entry(sym, catalyst)
             item.watching = sym in self.detectors
             self.watchlist[sym] = item
 
-        ranked = sorted(self.watchlist.values(), key=lambda w: w.score, reverse=True)
+        allowed_charts = set(self.scan_universe)
+        stale = set(self.detectors) - allowed_charts
+        for sym in stale:
+            del self.detectors[sym]
+            self._bar_counts.pop(sym, None)
+            log.info("Stopped chart feed for %s (filtered out)", sym)
+
+        ranked = sorted(
+            [w for w in self.watchlist.values() if w.symbol in self.scan_universe],
+            key=lambda w: w.score,
+            reverse=True,
+        )
         for item in ranked[:MAX_ACTIVE_SYMBOLS]:
             if item.symbol not in self.detectors and self.connected:
                 await self._init_detector(item.symbol)
                 item.watching = True
 
         filtered = await self.scanner.scan(self.scan_universe)
-        for cand in filtered:
-            self.candidates[cand.symbol] = cand
+        self.candidates = {c.symbol: c for c in filtered}
 
         log.info(
             "Scan complete — universe: %d, watching: %d, filtered: %d",
@@ -210,13 +232,30 @@ class Orchestrator:
         await self.trader.close(trade)
         return {"ok": True, "realized_pnl": trade.realized_pnl}
 
+    async def ensure_chart(self, symbol: str) -> bool:
+        sym = symbol.upper()
+        if sym not in self.scan_universe:
+            return False
+        if sym in self.detectors:
+            return True
+        if not self.connected:
+            return False
+        await self._init_detector(sym)
+        if sym in self.detectors and sym in self.watchlist:
+            self.watchlist[sym].watching = True
+        return sym in self.detectors
+
     async def watch_detail(self, symbol: str) -> WatchItem | None:
         sym = symbol.upper()
-        catalyst = self.scan_universe.get(sym)
-        if not catalyst:
-            return self.watchlist.get(sym)
+        if sym not in self.scan_universe:
+            return None
+        catalyst = self.scan_universe.get(sym, "chart")
         item = await self.scanner.watch_entry(sym, catalyst, with_news=True)
-        item.watching = sym in self.detectors
+        if sym in self.detectors:
+            item.watching = True
+        elif self.connected and sym in self.scan_universe:
+            await self.ensure_chart(sym)
+            item.watching = sym in self.detectors
         self.watchlist[sym] = item
         return item
 

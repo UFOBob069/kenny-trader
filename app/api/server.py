@@ -80,26 +80,18 @@ def get_settings():
     return orch.rules.as_dict()
 
 
-_CAP_FILTER_KEYS = {"min_market_cap_filter_enabled", "min_market_cap_millions"}
-
-
 @app.put("/api/settings")
 async def put_settings(patch: dict):
     orch.rules.update(patch)
-    if _CAP_FILTER_KEYS & patch.keys():
-        await orch.rescan_universe()
     return orch.rules.as_dict()
 
 
-@app.post("/api/filters/market-cap/toggle")
-async def toggle_market_cap_filter():
-    orch.rules.min_market_cap_filter_enabled = not orch.rules.min_market_cap_filter_enabled
+@app.put("/api/filters/market-cap")
+async def set_market_cap_filter(body: dict):
+    millions = max(0.0, float(body.get("millions", 0)))
+    orch.rules.min_market_cap_millions = millions
     await orch.rescan_universe()
-    return {
-        "ok": True,
-        "min_market_cap_filter_enabled": orch.rules.min_market_cap_filter_enabled,
-        "min_market_cap_floor_usd": orch.rules.min_market_cap_floor_usd,
-    }
+    return {"ok": True, "min_market_cap_millions": orch.rules.min_market_cap_millions}
 
 
 @app.post("/api/automation/toggle")
@@ -130,7 +122,6 @@ def status():
         "realized_pnl_today": round(orch.risk.realized_pnl_today, 2),
         "can_trade": can,
         "blocked_reason": reason,
-        "min_market_cap_filter_enabled": orch.rules.min_market_cap_filter_enabled,
         "min_market_cap_millions": orch.rules.min_market_cap_millions,
     }
 
@@ -154,8 +145,13 @@ async def get_watch_detail(symbol: str):
 # --- chart ------------------------------------------------------------------ #
 
 @app.get("/api/chart/{symbol}")
-def chart(symbol: str):
-    payload = orch.chart(symbol)
+async def chart(symbol: str):
+    sym = symbol.upper()
+    if sym not in orch.scan_universe:
+        return JSONResponse({"error": f"{sym} not in today's scan"}, status_code=404)
+    if sym not in orch.detectors:
+        await orch.ensure_chart(sym)
+    payload = orch.chart(sym)
     if payload is None:
         return JSONResponse({"error": f"not watching {symbol}"}, status_code=404)
     return payload

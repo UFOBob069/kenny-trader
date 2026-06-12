@@ -63,8 +63,10 @@ class DailyScanData:
         dropped = 0
         for sym, catalyst in symbols.items():
             cap = await self.market_cap(sym)
-            if cap is not None and cap >= floor_usd:
+            if cap is None or cap >= floor_usd:
                 kept[sym] = catalyst
+                if cap is None:
+                    log.debug("Keeping %s — market cap unknown", sym)
             else:
                 dropped += 1
         log.info(

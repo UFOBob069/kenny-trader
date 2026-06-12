@@ -121,7 +121,7 @@ function renderWatchlistRows() {
   if (!watchItems.length) {
     tbody.innerHTML = '';
     empty.style.display = 'block';
-    empty.textContent = 'Waiting for scan — confirm FINNHUB_API_KEY is set.';
+    empty.textContent = 'No symbols match today’s scan — check FINNHUB_API_KEY or lower the market-cap filter.';
     return;
   }
   empty.style.display = 'none';
@@ -170,30 +170,46 @@ async function refreshStatus() {
   toggle.className = s.auto_trade_enabled ? 'on' : 'off';
   const uniN = Object.keys(s.scan_universe || {}).length;
   const qualN = watchItems.filter(w => w.qualified).length;
-  const capPill = document.getElementById('cap-pill');
-  if (capPill) {
-    const on = s.min_market_cap_filter_enabled;
-    capPill.textContent = on
-      ? `Cap ≥ $${s.min_market_cap_millions}M`
-      : 'Cap filter OFF';
-    capPill.className = 'pill ' + (on ? 'on' : 'off');
-  }
-  const capToggle = document.getElementById('cap-toggle');
-  if (capToggle) {
-    capToggle.textContent = s.min_market_cap_filter_enabled ? 'Disable Cap Filter' : 'Enable Cap Filter';
-    capToggle.className = s.min_market_cap_filter_enabled ? 'on' : 'off';
-  }
+  renderCapSelector(s.min_market_cap_millions);
   document.getElementById('risk-pill').textContent =
     `${s.market_session || '—'} · List: ${uniN} · Ready: ${qualN} · Charts: ${(s.watching || []).length}` +
     ` · Trades: ${s.trades_today} · P&L: $${s.realized_pnl_today}` +
     (s.can_trade ? '' : ` · BLOCKED: ${s.blocked_reason}`);
 }
 
+const CAP_PRESETS = [
+  { label: 'All', millions: 0 },
+  { label: '$300M', millions: 300 },
+  { label: '$500M', millions: 500 },
+  { label: '$1B', millions: 1000 },
+  { label: '$2B', millions: 2000 },
+  { label: '$5B', millions: 5000 },
+];
+
+function renderCapSelector(activeMillions) {
+  const el = document.getElementById('cap-select');
+  if (!el) return;
+  el.innerHTML = '<span class="lbl">Min cap</span>' + CAP_PRESETS.map(p => {
+    const active = p.millions === activeMillions ? 'active' : '';
+    return `<button class="${active}" onclick="setMarketCap(${p.millions})">${p.label}</button>`;
+  }).join('');
+}
+
+async function setMarketCap(millions) {
+  await j('/api/filters/market-cap', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ millions }),
+  });
+  refreshAll();
+}
+
 function signalCard(s) {
   const reasons = (s.breakdown?.reasons || []).slice(0, 6).join(' · ');
   return `<div class="signal">
     <div class="head">
-      <span>${s.symbol} <span style="color:${s.direction === 'LONG' ? 'var(--green)' : 'var(--red)'}">${s.direction}</span></span>
+      <span><span class="sym-link" onclick="selectSymbol('${s.symbol}')">${s.symbol}</span>
+        <span style="color:${s.direction === 'LONG' ? 'var(--green)' : 'var(--red)'}">${s.direction}</span></span>
       <span class="conf">${s.confidence}%</span>
     </div>
     <div class="levels">
@@ -251,8 +267,6 @@ async function refreshPnl() {
 }
 
 const SETTING_LABELS = {
-  min_market_cap_filter_enabled: 'market cap filter',
-  min_market_cap_millions: 'min market cap ($M)',
   auto_trade_threshold: 'auto trade threshold',
   max_trades_per_day: 'max trades per day',
   max_daily_loss: 'max daily loss',
@@ -261,8 +275,6 @@ const SETTING_LABELS = {
 };
 
 const EDITABLE = [
-  'min_market_cap_filter_enabled',
-  'min_market_cap_millions',
   'auto_trade_threshold',
   'max_trades_per_day',
   'max_daily_loss',
@@ -276,7 +288,7 @@ async function refreshSettings() {
     const v = s[k];
     const input = typeof v === 'boolean'
       ? `<input type="checkbox" id="set-${k}" ${v ? 'checked' : ''}>`
-      : `<input type="number" id="set-${k}" value="${v}" ${k === 'min_market_cap_millions' && !s.min_market_cap_filter_enabled ? 'disabled' : ''}>`;
+      : `<input type="number" id="set-${k}" value="${v}">`;
     return `<div class="settings-row"><span>${SETTING_LABELS[k] || k}</span>${input}</div>`;
   }).join('') + `<div class="settings-row"><span></span>
     <button class="buy" style="padding:5px 14px;border:0;border-radius:6px;cursor:pointer"
@@ -300,13 +312,6 @@ async function ignore(id)  { await j(`/api/signals/${id}/ignore`,  { method: 'PO
 async function closeTrade(id) { await j(`/api/trades/${id}/close`, { method: 'POST' }); refreshAll(); }
 async function toggleAuto() {
   await j('/api/automation/toggle', { method: 'POST' });
-  refreshStatus();
-}
-
-async function toggleMarketCapFilter() {
-  await j('/api/filters/market-cap/toggle', { method: 'POST' });
-  refreshSettings();
-  refreshWatchlist();
   refreshStatus();
 }
 
