@@ -20,7 +20,12 @@ from alpaca.data.requests import (
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
-from alpaca.trading.requests import LimitOrderRequest, StopLossRequest, TakeProfitRequest
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    StopLossRequest,
+    TakeProfitRequest,
+)
 
 from app.config import settings
 from app.data.market_hours import is_extended_hours
@@ -393,7 +398,7 @@ class AlpacaClient:
         try:
             orders = await asyncio.to_thread(
                 self._trading.get_orders,
-                filter=QueryOrderStatus.OPEN,
+                filter=GetOrdersRequest(status=QueryOrderStatus.OPEN),
             )
         except Exception:
             log.exception("Failed to fetch open orders")
@@ -422,7 +427,9 @@ class AlpacaClient:
         if not self._trading:
             return
         cancel_ids = {oid for oid in order_ids}
-        open_orders = self._trading.get_orders(filter=QueryOrderStatus.OPEN)
+        open_orders = self._trading.get_orders(
+            filter=GetOrdersRequest(status=QueryOrderStatus.OPEN),
+        )
         for order in open_orders:
             if str(order.id) in cancel_ids:
                 try:
