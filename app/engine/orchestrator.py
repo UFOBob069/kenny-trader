@@ -12,8 +12,10 @@ from datetime import datetime, timezone
 from app.ai.analyst import CatalystAnalyst
 from app.ai.confidence import score_signal
 from app.config import settings
-from app.data.fmp import FmpClient
+from app.data.alpaca import AlpacaClient
 from app.data.broker import make_broker
+from app.data.finnhub import FinnhubClient
+from app.data.scan_data import DailyScanData
 from app.db.store import make_store
 from app.engine.risk import RiskManager, RuntimeRules
 from app.engine.scanner import Scanner
@@ -34,9 +36,10 @@ class Orchestrator:
         self.store = make_store()
         self.rules = RuntimeRules(settings)
         self.risk = RiskManager(self.rules)
-        self.fmp = FmpClient()
         self.broker = make_broker()
-        self.scanner = Scanner(self.fmp)
+        alpaca = self.broker if isinstance(self.broker, AlpacaClient) else None
+        self.scan_data = DailyScanData(FinnhubClient(), alpaca)
+        self.scanner = Scanner(self.scan_data)
         self.analyst = CatalystAnalyst()
         self.trader = Trader(self.broker, self.store, self.risk)
 
@@ -63,7 +66,7 @@ class Orchestrator:
     async def stop(self) -> None:
         for t in self._tasks:
             t.cancel()
-        await self.fmp.close()
+        await self.scan_data.close()
         self.broker.disconnect()
 
     # ------------------------------------------------------------------ #

@@ -68,6 +68,9 @@ async function refreshStatus() {
   const auto = document.getElementById('auto-pill');
   auto.textContent = s.auto_trade_enabled ? 'AUTO ON' : 'AUTO OFF';
   auto.className = 'pill ' + (s.auto_trade_enabled ? 'on' : 'off');
+  const toggle = document.getElementById('auto-toggle');
+  toggle.textContent = s.auto_trade_enabled ? 'Disable Auto-Trade' : 'Enable Auto-Trade';
+  toggle.className = s.auto_trade_enabled ? 'on' : 'off';
   document.getElementById('risk-pill').textContent =
     `${s.market_session || '—'} · Trades today: ${s.trades_today} · Realized: $${s.realized_pnl_today}` +
     (s.can_trade ? '' : ` · BLOCKED: ${s.blocked_reason}`);
@@ -137,7 +140,7 @@ async function refreshPnl() {
   }).join('');
 }
 
-const EDITABLE = ['auto_trade_enabled', 'auto_trade_threshold', 'max_trades_per_day',
+const EDITABLE = ['auto_trade_threshold', 'max_trades_per_day',
                   'max_daily_loss', 'risk_per_trade', 'max_position_size'];
 
 async function refreshSettings() {
@@ -166,7 +169,10 @@ async function saveSettings() {
 async function approve(id) { await j(`/api/signals/${id}/approve`, { method: 'POST' }); refreshAll(); }
 async function ignore(id)  { await j(`/api/signals/${id}/ignore`,  { method: 'POST' }); refreshSignals(); }
 async function closeTrade(id) { await j(`/api/trades/${id}/close`, { method: 'POST' }); refreshAll(); }
-async function disableAuto() { await j('/api/automation/disable', { method: 'POST' }); refreshStatus(); refreshSettings(); }
+async function toggleAuto() {
+  await j('/api/automation/toggle', { method: 'POST' });
+  refreshStatus();
+}
 
 function refreshAll() {
   refreshStatus(); refreshSignals(); refreshTrades(); refreshPnl();

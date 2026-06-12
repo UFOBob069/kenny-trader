@@ -86,10 +86,16 @@ async def put_settings(patch: dict):
     return orch.rules.as_dict()
 
 
+@app.post("/api/automation/toggle")
+def toggle_automation():
+    orch.rules.auto_trade_enabled = not orch.rules.auto_trade_enabled
+    return {"ok": True, "auto_trade_enabled": orch.rules.auto_trade_enabled}
+
+
 @app.post("/api/automation/disable")
 def disable_automation():
     orch.rules.auto_trade_enabled = False
-    return {"ok": True}
+    return {"ok": True, "auto_trade_enabled": False}
 
 
 @app.get("/api/status")

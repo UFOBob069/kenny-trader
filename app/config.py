@@ -17,7 +17,11 @@ class Settings(BaseSettings):
     ibkr_port: int = 7497  # paper by default
     ibkr_client_id: int = 17
 
-    # Data / AI
+    # Scan data (Finnhub earnings today + Alpaca movers)
+    finnhub_api_key: str = ""
+    alpaca_movers_top: int = 25
+
+    # Data / AI (legacy — scanner no longer uses FMP)
     fmp_api_key: str = ""
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"

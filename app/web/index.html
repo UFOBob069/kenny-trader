@@ -19,8 +19,10 @@
   .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
   .pill.on  { color: var(--green); }
   .pill.off { color: var(--red); }
-  #killswitch { margin-left: auto; background: var(--red); color: #fff; border: 0;
-                padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  #auto-toggle { margin-left: auto; border: 0; padding: 6px 14px; border-radius: 6px;
+                 cursor: pointer; font-weight: 600; color: #fff; }
+  #auto-toggle.off { background: var(--green); }
+  #auto-toggle.on  { background: var(--red); }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
@@ -64,7 +66,7 @@
   <span id="broker-pill" class="pill off">Broker …</span>
   <span id="auto-pill" class="pill off">AUTO …</span>
   <span id="risk-pill" class="pill">—</span>
-  <button id="killswitch" onclick="disableAuto()">Disable Automation</button>
+  <button id="auto-toggle" class="off" onclick="toggleAuto()">Enable Auto-Trade</button>
 </header>
 <main>
   <div>

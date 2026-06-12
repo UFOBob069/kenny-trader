@@ -51,8 +51,8 @@ class Candidate(BaseModel):
     price: float = 0.0
     prior_close: float = 0.0
     avg_volume: float = 0.0
-    catalyst: str = ""                       # "earnings", "news", "volume"
-    earnings: Optional[dict] = None          # FMP earnings surprise payload
+    catalyst: str = ""                       # "earnings", "mover", "news"
+    earnings: Optional[dict] = None          # EPS/revenue actual vs estimate
     headlines: list[str] = Field(default_factory=list)
 
 

@@ -9,7 +9,14 @@ from zoneinfo import ZoneInfo
 
 from alpaca.data.enums import DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest, StockLatestTradeRequest
+from alpaca.data.historical.screener import ScreenerClient
+from alpaca.data.requests import (
+    MarketMoversRequest,
+    StockBarsRequest,
+    StockLatestQuoteRequest,
+    StockLatestTradeRequest,
+    StockSnapshotRequest,
+)
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
@@ -54,6 +61,7 @@ class AlpacaClient:
     def __init__(self) -> None:
         self._trading: TradingClient | None = None
         self._data: StockHistoricalDataClient | None = None
+        self._screener: ScreenerClient | None = None
         feed_name = settings.alpaca_data_feed.lower()
         self._feed = DataFeed.SIP if feed_name == "sip" else DataFeed.IEX
 
@@ -69,6 +77,10 @@ class AlpacaClient:
             settings.alpaca_api_key,
             settings.alpaca_secret_key,
         )
+        self._screener = ScreenerClient(
+            settings.alpaca_api_key,
+            settings.alpaca_secret_key,
+        )
         account = await asyncio.to_thread(self._trading.get_account)
         mode = "paper" if settings.alpaca_paper else "live"
         log.info("Connected to Alpaca (%s) — equity $%s", mode, account.equity)
@@ -76,6 +88,7 @@ class AlpacaClient:
     def disconnect(self) -> None:
         self._trading = None
         self._data = None
+        self._screener = None
 
     async def minute_bars(self, symbol: str, days: int = 1) -> list[Bar]:
         if not self._data:
@@ -135,6 +148,84 @@ class AlpacaClient:
             if price and price > 0:
                 return float(price)
         return None
+
+    async def market_movers(self, top: int = 25) -> list[str]:
+        """Top gainers + losers for today's scan list."""
+        if not self._screener:
+            return []
+        try:
+            movers = await asyncio.to_thread(
+                self._screener.get_market_movers,
+                MarketMoversRequest(top=top),
+            )
+        except Exception:
+            log.exception("Alpaca market movers request failed")
+            return []
+        symbols: list[str] = []
+        for group in (getattr(movers, "gainers", None), getattr(movers, "losers", None)):
+            if not group:
+                continue
+            for item in group:
+                sym = getattr(item, "symbol", None)
+                if sym:
+                    symbols.append(sym.upper())
+        return symbols
+
+    async def quote_snapshot(self, symbol: str) -> dict | None:
+        """Price, prior close, today's volume, and 20-day avg volume for scanning."""
+        if not self._data:
+            return None
+        sym = symbol.upper()
+        try:
+            snaps = await asyncio.to_thread(
+                self._data.get_stock_snapshot,
+                StockSnapshotRequest(symbol_or_symbols=sym),
+            )
+        except Exception:
+            log.exception("Alpaca snapshot failed for %s", symbol)
+            return None
+        snap = snaps.get(sym)
+        if not snap:
+            return None
+
+        price = None
+        if snap.latest_trade and snap.latest_trade.price:
+            price = float(snap.latest_trade.price)
+        elif snap.daily_bar and snap.daily_bar.close:
+            price = float(snap.daily_bar.close)
+        if not price:
+            return None
+
+        prev_close = float(snap.previous_daily_bar.close) if snap.previous_daily_bar else 0.0
+        volume = float(snap.daily_bar.volume) if snap.daily_bar else 0.0
+        avg_vol = await self._avg_daily_volume(sym)
+
+        return {
+            "price": price,
+            "previousClose": prev_close,
+            "volume": volume,
+            "avgVolume": avg_vol,
+        }
+
+    async def _avg_daily_volume(self, symbol: str, days: int = 20) -> float:
+        if not self._data:
+            return 0.0
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days + 10)
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=TimeFrame.Day,
+            start=start,
+            end=end,
+            feed=self._feed,
+        )
+        try:
+            response = await asyncio.to_thread(self._data.get_stock_bars, request)
+        except Exception:
+            return 0.0
+        bars = response.data.get(symbol, [])
+        vols = [float(b.volume) for b in bars[-days:] if b.volume]
+        return sum(vols) / len(vols) if vols else 0.0
 
     async def place_bracket(
         self,

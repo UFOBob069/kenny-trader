@@ -1,32 +1,26 @@
-"""Candidate scanner: earnings reporters + watchlist -> filtered Candidates.
+"""Candidate scanner: today's earnings + market movers -> filtered Candidates.
 
 Filters (configurable): |gap| >= min_gap_pct, relative volume >= min,
-price >= min_price, and a catalyst must exist.
+price >= min_price.
 """
 from __future__ import annotations
 
 import logging
 
 from app.config import settings
-from app.data.fmp import FmpClient
+from app.data.scan_data import DailyScanData
 from app.models import Candidate
 
 log = logging.getLogger(__name__)
 
 
 class Scanner:
-    def __init__(self, fmp: FmpClient, watchlist: set[str] | None = None) -> None:
-        self.fmp = fmp
+    def __init__(self, scan: DailyScanData, watchlist: set[str] | None = None) -> None:
+        self.scan = scan
         self.watchlist: set[str] = watchlist or set()
 
     async def scan(self) -> list[Candidate]:
-        symbols: dict[str, str] = {}  # symbol -> catalyst
-
-        for row in await self.fmp.earnings_calendar():
-            sym = row.get("symbol", "")
-            # skip foreign listings with exchange suffixes
-            if sym and "." not in sym:
-                symbols[sym] = "earnings"
+        symbols = await self.scan.daily_symbols()
 
         for sym in self.watchlist:
             symbols.setdefault(sym.upper(), "news")
@@ -43,7 +37,7 @@ class Scanner:
         return candidates
 
     async def _evaluate(self, symbol: str, catalyst: str) -> Candidate | None:
-        quote = await self.fmp.quote(symbol)
+        quote = await self.scan.quote(symbol)
         if not quote:
             return None
 
@@ -58,13 +52,12 @@ class Scanner:
         gap_pct = (price - prior_close) / prior_close * 100
         rvol = volume / avg_vol if avg_vol else 0.0
 
-        # watchlist names only need to clear price; earnings names need gap + volume
-        if catalyst == "earnings":
+        if catalyst in ("earnings", "mover"):
             if abs(gap_pct) < settings.min_gap_pct or rvol < settings.min_relative_volume:
                 return None
 
-        earnings = await self.fmp.earnings_surprise(symbol) if catalyst == "earnings" else None
-        headlines = await self.fmp.stock_news(symbol)
+        earnings = await self.scan.earnings_for(symbol, catalyst)
+        headlines = await self.scan.headlines(symbol)
 
         return Candidate(
             symbol=symbol,
