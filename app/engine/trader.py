@@ -18,30 +18,35 @@ class Trader:
         self.store = store
         self.risk = risk
 
-    async def execute(self, signal: Signal, auto: bool) -> Trade | None:
+    async def execute(self, signal: Signal, auto: bool) -> tuple[Trade | None, str | None]:
         ok, reason = self.risk.can_trade()
         if not ok:
             log.warning("Trade blocked for %s: %s", signal.symbol, reason)
             signal.status = SignalStatus.REJECTED
             self.store.save_signal(signal)
-            return None
+            return None, reason
 
         qty = self.risk.position_size(signal)
         if qty < 1:
+            msg = (
+                f"Position size 0 — risk/share ${signal.risk_per_share:.2f} is too wide "
+                f"for ${self.risk.rules.risk_per_trade:.0f} risk budget"
+            )
             log.warning("Position size 0 for %s (risk/share %.2f too wide)", signal.symbol, signal.risk_per_share)
             signal.status = SignalStatus.REJECTED
             self.store.save_signal(signal)
-            return None
+            return None, msg
 
         try:
             placement = await self.broker.place_bracket(
                 signal.symbol, signal.direction, qty, signal.entry, signal.stop, signal.target
             )
-        except Exception:
-            log.exception("Order failed for %s", signal.symbol)
+        except Exception as exc:
+            msg = getattr(exc, "message", None) or str(exc) or "broker rejected the order"
+            log.exception("Order failed for %s: %s", signal.symbol, msg)
             signal.status = SignalStatus.REJECTED
             self.store.save_signal(signal)
-            return None
+            return None, msg
 
         signal.status = SignalStatus.AUTO_EXECUTED if auto else SignalStatus.APPROVED
         self.store.save_signal(signal)
@@ -63,7 +68,14 @@ class Trader:
             self.risk.record_trade_opened()
         log.info("Trade opened: %s %s x%d @ %.2f (conf %.0f%%)",
                  trade.direction.value, trade.symbol, qty, trade.entry, trade.confidence)
-        return trade
+        if placement.pending_exits:
+            note = (
+                f"Extended-hours limit order placed — {qty} shares @ ${signal.entry:.2f}. "
+                "Waits for fill; stop/target attach after fill."
+            )
+        else:
+            note = f"Bracket order placed — {qty} shares @ ${signal.entry:.2f}"
+        return trade, note
 
     async def close(self, trade: Trade, exit_price: float | None = None) -> Trade:
         self.broker.cancel_orders(trade.order_ids)

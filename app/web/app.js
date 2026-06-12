@@ -2,6 +2,20 @@
 let chart, candleSeries, volumeSeries, vwapSeries, pdvSeries;
 let activeSymbol = null;
 let watchItems = [];
+let lastStatus = {};
+let chartPollTimer = null;
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function toast(msg, ok = true) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'toast show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => el.classList.remove('show'), ok ? 6000 : 10000);
+}
 
 function initChart() {
   const el = document.getElementById('chart');
@@ -33,17 +47,49 @@ async function j(url, opts) {
   return r.json();
 }
 
+function renderChartData(d) {
+  candleSeries.setData(d.bars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+  volumeSeries.setData(d.bars.map(b => ({ time: b.time, value: b.volume })));
+  vwapSeries.setData(d.vwap);
+  pdvSeries.setData(d.prior_vwap);
+  candleSeries.setMarkers(d.markers || []);
+}
+
 async function refreshChart() {
   if (!activeSymbol) return;
+  const loading = document.getElementById('chart-loading');
+  if (loading) loading.style.display = 'flex';
   try {
-    const d = await j(`/api/chart/${activeSymbol}`);
-    if (d.error) return;
-    candleSeries.setData(d.bars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
-    volumeSeries.setData(d.bars.map(b => ({ time: b.time, value: b.volume })));
-    vwapSeries.setData(d.vwap);
-    pdvSeries.setData(d.prior_vwap);
-    candleSeries.setMarkers(d.markers || []);
-  } catch (e) { /* chart not ready */ }
+    for (let i = 0; i < 40; i++) {
+      const d = await j(`/api/chart/${activeSymbol}`);
+      if (d.loading) {
+        if (loading) loading.textContent = 'Loading chart…';
+        await sleep(1500);
+        continue;
+      }
+      if (d.error) {
+        if (loading) {
+          loading.textContent = d.error;
+          loading.style.display = 'flex';
+        }
+        return;
+      }
+      if (d.bars?.length) {
+        renderChartData(d);
+        if (loading) loading.style.display = 'none';
+        return;
+      }
+      await sleep(1500);
+    }
+    if (loading) loading.textContent = 'Chart timed out — try again';
+  } catch (e) {
+    if (loading) loading.textContent = 'Chart failed to load';
+  }
+}
+
+function startChartPoll() {
+  if (chartPollTimer) clearInterval(chartPollTimer);
+  chartPollTimer = setInterval(refreshChart, 15000);
 }
 
 function fmtCap(n) {
@@ -158,6 +204,7 @@ async function refreshWatchlist() {
 
 async function refreshStatus() {
   const s = await j('/api/status');
+  lastStatus = s;
   const pill = document.getElementById('broker-pill');
   const label = (s.broker || 'broker').toUpperCase();
   pill.textContent = s.broker_connected ? `${label} connected` : `${label} offline`;
@@ -165,9 +212,11 @@ async function refreshStatus() {
   const auto = document.getElementById('auto-pill');
   auto.textContent = s.auto_trade_enabled ? 'AUTO ON' : 'AUTO OFF';
   auto.className = 'pill ' + (s.auto_trade_enabled ? 'on' : 'off');
-  const toggle = document.getElementById('auto-toggle');
-  toggle.textContent = s.auto_trade_enabled ? 'Disable Auto-Trade' : 'Enable Auto-Trade';
-  toggle.className = s.auto_trade_enabled ? 'on' : 'off';
+  const autoSwitch = document.getElementById('auto-switch');
+  if (autoSwitch) {
+    autoSwitch.className = 'switch' + (s.auto_trade_enabled ? ' on' : '');
+    autoSwitch.setAttribute('aria-checked', s.auto_trade_enabled ? 'true' : 'false');
+  }
   const uniN = Object.keys(s.scan_universe || {}).length;
   const qualN = watchItems.filter(w => w.qualified).length;
   renderCapSelector(s.min_market_cap_millions);
@@ -206,6 +255,10 @@ async function setMarketCap(millions) {
 
 function signalCard(s) {
   const reasons = (s.breakdown?.reasons || []).slice(0, 6).join(' · ');
+  const thresh = lastStatus.auto_trade_threshold ?? 90;
+  const autoHint = lastStatus.auto_trade_enabled && s.confidence < thresh
+    ? `<div class="auto-hint">Auto skipped — needs ${thresh}%+ confidence (this signal is ${s.confidence}%)</div>`
+    : '';
   return `<div class="signal">
     <div class="head">
       <span><span class="sym-link" onclick="selectSymbol('${s.symbol}')">${s.symbol}</span>
@@ -216,6 +269,7 @@ function signalCard(s) {
       <span>Entry ${s.entry}</span><span>Stop ${s.stop}</span><span>Target ${s.target}</span>
     </div>
     <div class="reasons">${s.setup.replaceAll('_', ' ')} — ${reasons}</div>
+    ${autoHint}
     <div class="actions">
       <button class="buy" onclick="approve('${s.id}')">${s.direction === 'LONG' ? 'Buy' : 'Short'}</button>
       <button class="ign" onclick="ignore('${s.id}')">Ignore</button>
@@ -231,14 +285,41 @@ async function refreshSignals() {
     : '<div class="empty">No pending signals.</div>';
 }
 
+async function refreshOrders() {
+  const d = await j('/api/orders');
+  const tbody = document.querySelector('#pending-orders tbody');
+  const empty = document.getElementById('orders-empty');
+  const rows = d.open || [];
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = rows.map(o => {
+    const px = o.price != null ? `$${o.price}` : '—';
+    const qty = o.filled_qty > 0 && o.filled_qty < o.qty
+      ? `${o.filled_qty}/${o.qty}` : o.qty;
+    return `<tr>
+      <td><strong>${o.symbol}</strong></td>
+      <td>${o.side}</td>
+      <td>${qty}</td>
+      <td>${o.type}${o.order_class ? ' · ' + o.order_class : ''}</td>
+      <td>${px}</td>
+      <td>${o.status}</td>
+    </tr>`;
+  }).join('');
+}
+
 async function refreshTrades() {
   const d = await j('/api/trades');
   const tbody = document.querySelector('#open-trades tbody');
   document.getElementById('open-empty').style.display = d.open.length ? 'none' : 'block';
   tbody.innerHTML = d.open.map(t => {
     const pnl = t.unrealized_pnl ?? 0;
+    const state = t.pending_exits ? ' <span class="badge no">entry pending</span>' : '';
     return `<tr>
-      <td>${t.symbol}</td><td>${t.direction}</td><td>${t.quantity}</td>
+      <td>${t.symbol}${state}</td><td>${t.direction}</td><td>${t.quantity}</td>
       <td>${t.entry}</td><td>${t.current_price ?? '—'}</td>
       <td class="${pnl >= 0 ? 'pos' : 'neg'}">$${pnl.toFixed(2)}</td>
       <td>${t.confidence}%</td>
@@ -307,18 +388,25 @@ async function saveSettings() {
   refreshStatus();
 }
 
-async function approve(id) { await j(`/api/signals/${id}/approve`, { method: 'POST' }); refreshAll(); }
+async function approve(id) {
+  const res = await j(`/api/signals/${id}/approve`, { method: 'POST' });
+  if (res.ok) toast(res.message || `Order placed (${res.trade_id})`, true);
+  else toast(res.error || 'Order failed — check Railway logs', false);
+  refreshAll();
+}
 async function ignore(id)  { await j(`/api/signals/${id}/ignore`,  { method: 'POST' }); refreshSignals(); }
 async function closeTrade(id) { await j(`/api/trades/${id}/close`, { method: 'POST' }); refreshAll(); }
 async function toggleAuto() {
   await j('/api/automation/toggle', { method: 'POST' });
-  refreshStatus();
+  await refreshStatus();
+  toast(lastStatus.auto_trade_enabled ? 'Auto-trade ON' : 'Auto-trade OFF', true);
 }
 
 async function refreshAll() {
   await refreshWatchlist();
-  refreshStatus();
+  await refreshStatus();
   refreshSignals();
+  refreshOrders();
   refreshTrades();
   refreshPnl();
 }
@@ -326,5 +414,5 @@ async function refreshAll() {
 initChart();
 refreshAll();
 refreshSettings();
+startChartPoll();
 setInterval(refreshAll, 10000);
-setInterval(refreshChart, 30000);

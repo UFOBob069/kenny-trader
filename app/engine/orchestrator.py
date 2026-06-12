@@ -48,6 +48,7 @@ class Orchestrator:
         self.scan_universe: dict[str, str] = {}
         self.watchlist: dict[str, WatchItem] = {}
         self._bar_counts: dict[str, int] = {}
+        self._chart_init_tasks: dict[str, asyncio.Task] = {}
         self._tasks: list[asyncio.Task] = []
         self.connected = False
 
@@ -194,7 +195,9 @@ class Orchestrator:
                  signal.target, signal.confidence)
 
         if self.rules.auto_trade_enabled and signal.confidence >= self.rules.auto_trade_threshold:
-            await self.trader.execute(signal, auto=True)
+            trade, err = await self.trader.execute(signal, auto=True)
+            if err:
+                log.warning("Auto-trade failed for %s: %s", signal.symbol, err)
         # otherwise it stays PENDING for manual approval in the dashboard
 
     # ------------------------------------------------------------------ #
@@ -214,8 +217,10 @@ class Orchestrator:
             sig.status = SignalStatus.EXPIRED
             self.store.save_signal(sig)
             return {"ok": False, "error": "signal expired (>10 min old)"}
-        trade = await self.trader.execute(sig, auto=False)
-        return {"ok": trade is not None, "trade_id": trade.id if trade else None}
+        trade, note = await self.trader.execute(sig, auto=False)
+        if trade:
+            return {"ok": True, "trade_id": trade.id, "message": note}
+        return {"ok": False, "error": note or "order failed"}
 
     def ignore_signal(self, signal_id: str) -> dict:
         sig = self.store.get_signal(signal_id)
@@ -225,12 +230,37 @@ class Orchestrator:
         self.store.save_signal(sig)
         return {"ok": True}
 
+    async def open_orders(self) -> list[dict]:
+        if isinstance(self.broker, AlpacaClient):
+            return await self.broker.list_open_orders()
+        return []
+
     async def close_trade(self, trade_id: str) -> dict:
         trade = self.store.get_trade(trade_id)
         if not trade:
             return {"ok": False, "error": "trade not found"}
         await self.trader.close(trade)
         return {"ok": True, "realized_pnl": trade.realized_pnl}
+
+    def schedule_chart_init(self, symbol: str) -> None:
+        """Start chart/detector load in the background (non-blocking for HTTP)."""
+        sym = symbol.upper()
+        if sym not in self.scan_universe or sym in self.detectors or not self.connected:
+            return
+        if sym in self._chart_init_tasks:
+            return
+
+        async def _run() -> None:
+            try:
+                await self._init_detector(sym)
+                if sym in self.watchlist:
+                    self.watchlist[sym].watching = True
+            except Exception:
+                log.exception("Chart init failed for %s", sym)
+            finally:
+                self._chart_init_tasks.pop(sym, None)
+
+        self._chart_init_tasks[sym] = asyncio.create_task(_run(), name=f"chart-{sym}")
 
     async def ensure_chart(self, symbol: str) -> bool:
         sym = symbol.upper()
@@ -240,9 +270,9 @@ class Orchestrator:
             return True
         if not self.connected:
             return False
-        await self._init_detector(sym)
-        if sym in self.detectors and sym in self.watchlist:
-            self.watchlist[sym].watching = True
+        self.schedule_chart_init(sym)
+        if sym in self._chart_init_tasks:
+            await self._chart_init_tasks[sym]
         return sym in self.detectors
 
     async def watch_detail(self, symbol: str) -> WatchItem | None:

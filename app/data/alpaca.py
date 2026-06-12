@@ -387,6 +387,37 @@ class AlpacaClient:
         order = await asyncio.to_thread(self._trading.submit_order, request)
         return str(order.id)
 
+    async def list_open_orders(self) -> list[dict]:
+        if not self._trading:
+            return []
+        try:
+            orders = await asyncio.to_thread(
+                self._trading.get_orders,
+                filter=QueryOrderStatus.OPEN,
+            )
+        except Exception:
+            log.exception("Failed to fetch open orders")
+            return []
+        out: list[dict] = []
+        for o in orders:
+            limit_px = getattr(o, "limit_price", None)
+            stop_px = getattr(o, "stop_price", None)
+            price = float(limit_px) if limit_px else (float(stop_px) if stop_px else None)
+            out.append({
+                "id": str(o.id),
+                "symbol": o.symbol,
+                "side": o.side.value if o.side else "",
+                "qty": int(float(o.qty)) if o.qty else 0,
+                "filled_qty": int(float(o.filled_qty)) if o.filled_qty else 0,
+                "type": o.type.value if o.type else "",
+                "status": o.status.value if o.status else "",
+                "price": price,
+                "order_class": o.order_class.value if o.order_class else "",
+                "created_at": o.created_at.isoformat() if o.created_at else None,
+            })
+        out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return out
+
     def cancel_orders(self, order_ids: list[str]) -> None:
         if not self._trading:
             return

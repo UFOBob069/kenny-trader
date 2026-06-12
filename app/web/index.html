@@ -19,10 +19,16 @@
   .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
   .pill.on  { color: var(--green); }
   .pill.off { color: var(--red); }
-  #auto-toggle { border: 0; padding: 6px 14px; border-radius: 6px;
-                 cursor: pointer; font-weight: 600; color: #fff; }
-  #auto-toggle.off { background: var(--green); }
-  #auto-toggle.on  { background: var(--red); }
+
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                padding: 6px 0 4px; }
+  .toggle-hint { font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 4px; }
+  .switch { width: 44px; height: 24px; border: 0; border-radius: 12px; padding: 0; cursor: pointer;
+            background: #3a4254; position: relative; flex-shrink: 0; transition: background .2s; }
+  .switch.on { background: var(--green); }
+  .switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+                  background: #fff; transition: transform .2s; }
+  .switch.on .knob { transform: translateX(20px); }
   .cap-select { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-wrap: wrap; }
   .cap-select .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; text-transform: uppercase;
                      letter-spacing: .04em; }
@@ -31,6 +37,18 @@
   .cap-select button.active { border-color: var(--blue); color: var(--blue); font-weight: 600; }
   .signal .sym-link { cursor: pointer; color: var(--blue); }
   .signal .sym-link:hover { text-decoration: underline; }
+  .auto-hint { font-size: 11px; color: var(--yellow); margin-top: 4px; }
+  #chart-loading { position: absolute; inset: 0; display: none; align-items: center;
+                   justify-content: center; background: rgba(19,23,34,.75); color: var(--muted);
+                   font-size: 13px; z-index: 2; }
+  #chart-wrap { position: relative; }
+  #toast { position: fixed; bottom: 18px; right: 18px; max-width: 420px; padding: 10px 14px;
+           border-radius: 8px; font-size: 13px; background: var(--panel); border: 1px solid var(--border);
+           box-shadow: 0 8px 24px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s;
+           z-index: 99; }
+  #toast.show { opacity: 1; pointer-events: auto; }
+  #toast.ok { border-color: var(--green); color: var(--green); }
+  #toast.err { border-color: var(--red); color: var(--red); }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
   .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
@@ -91,7 +109,6 @@
   <span id="auto-pill" class="pill off">AUTO …</span>
   <span id="risk-pill" class="pill">—</span>
   <div id="cap-select" class="cap-select" aria-label="Minimum market cap filter"></div>
-  <button id="auto-toggle" class="off" onclick="toggleAuto()">Enable Auto-Trade</button>
 </header>
 <main>
   <div>
@@ -109,11 +126,20 @@
       <h2>Kenny Chart — <span id="chart-symbol" style="color:var(--blue)">—</span>
         <span style="color:var(--muted);font-weight:400"> · </span>
         <span style="color:var(--blue)">VWAP</span> / <span style="color:var(--yellow)">Prior-Day VWAP</span></h2>
+      <div id="chart-loading">Loading chart…</div>
       <div id="chart"></div>
     </div>
     <div class="panel" style="margin-top:12px">
       <h2>Symbol Detail</h2>
       <div id="detail-body" class="empty">Select a symbol from the watchlist.</div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>Pending Orders <span style="color:var(--muted);font-weight:400;text-transform:none">— Alpaca</span></h2>
+      <table id="pending-orders">
+        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="orders-empty" class="empty">No open orders at broker.</div>
     </div>
     <div class="panel" style="margin-top:12px">
       <h2>Open Trades</h2>
@@ -138,11 +164,21 @@
       <div id="pending"></div>
     </div>
     <div class="panel">
+      <h2>Automation</h2>
+      <div class="toggle-row">
+        <span>Auto-trade signals</span>
+        <button type="button" id="auto-switch" class="switch" role="switch"
+          aria-checked="false" onclick="toggleAuto()"><span class="knob"></span></button>
+      </div>
+      <div class="toggle-hint">When on, places orders automatically for signals at or above the confidence threshold in Rules.</div>
+    </div>
+    <div class="panel">
       <h2>Rules</h2>
       <div id="settings"></div>
     </div>
   </aside>
 </main>
-<script src="/static/app.js?v=6"></script>
+<div id="toast"></div>
+<script src="/static/app.js?v=8"></script>
 </body>
 </html>

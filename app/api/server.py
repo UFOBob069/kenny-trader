@@ -51,6 +51,11 @@ def ignore(signal_id: str):
 
 # --- trades -------------------------------------------------------------- #
 
+@app.get("/api/orders")
+async def orders():
+    return {"open": await orch.open_orders()}
+
+
 @app.get("/api/trades")
 def trades():
     open_trades = orch.store.open_trades()
@@ -123,6 +128,7 @@ def status():
         "can_trade": can,
         "blocked_reason": reason,
         "min_market_cap_millions": orch.rules.min_market_cap_millions,
+        "auto_trade_threshold": orch.rules.auto_trade_threshold,
     }
 
 
@@ -150,10 +156,11 @@ async def chart(symbol: str):
     if sym not in orch.scan_universe:
         return JSONResponse({"error": f"{sym} not in today's scan"}, status_code=404)
     if sym not in orch.detectors:
-        await orch.ensure_chart(sym)
+        orch.schedule_chart_init(sym)
+        return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
     payload = orch.chart(sym)
     if payload is None:
-        return JSONResponse({"error": f"not watching {symbol}"}, status_code=404)
+        return JSONResponse({"error": f"chart not ready for {symbol}"}, status_code=404)
     return payload
 
 
