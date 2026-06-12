@@ -9,6 +9,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings
+from app.data.market_hours import is_extended_hours, market_session
 from app.engine.orchestrator import Orchestrator
 
 log = logging.getLogger(__name__)
@@ -94,7 +96,10 @@ def disable_automation():
 def status():
     can, reason = orch.risk.can_trade()
     return {
-        "ibkr_connected": orch.connected,
+        "broker_connected": orch.connected,
+        "broker": settings.broker,
+        "market_session": market_session(),
+        "extended_hours": is_extended_hours(),
         "watching": sorted(orch.detectors.keys()),
         "candidates": {s: c.model_dump() for s, c in orch.candidates.items()},
         "auto_trade_enabled": orch.rules.auto_trade_enabled,

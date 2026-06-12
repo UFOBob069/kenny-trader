@@ -110,7 +110,8 @@ class Trade(BaseModel):
     exit_price: Optional[float] = None
     current_price: Optional[float] = None
     realized_pnl: Optional[float] = None
-    ib_order_ids: list[int] = Field(default_factory=list)
+    order_ids: list[str] = Field(default_factory=list)
+    pending_exits: bool = False  # waiting for extended-hours entry fill before stop/target
 
     @property
     def unrealized_pnl(self) -> float:

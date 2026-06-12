@@ -5,7 +5,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # IBKR
+    # Broker: alpaca (default) or ibkr
+    broker: str = "alpaca"
+    alpaca_api_key: str = ""
+    alpaca_secret_key: str = ""
+    alpaca_paper: bool = True
+    alpaca_data_feed: str = "iex"  # iex (free) or sip (paid subscription)
+
+    # IBKR (only when BROKER=ibkr)
     ibkr_host: str = "127.0.0.1"
     ibkr_port: int = 7497  # paper by default
     ibkr_client_id: int = 17

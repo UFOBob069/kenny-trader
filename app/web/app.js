@@ -61,14 +61,15 @@ function renderTabs() {
 
 async function refreshStatus() {
   const s = await j('/api/status');
-  const ibkr = document.getElementById('ibkr-pill');
-  ibkr.textContent = s.ibkr_connected ? 'IBKR connected' : 'IBKR offline';
-  ibkr.className = 'pill ' + (s.ibkr_connected ? 'on' : 'off');
+  const pill = document.getElementById('broker-pill');
+  const label = (s.broker || 'broker').toUpperCase();
+  pill.textContent = s.broker_connected ? `${label} connected` : `${label} offline`;
+  pill.className = 'pill ' + (s.broker_connected ? 'on' : 'off');
   const auto = document.getElementById('auto-pill');
   auto.textContent = s.auto_trade_enabled ? 'AUTO ON' : 'AUTO OFF';
   auto.className = 'pill ' + (s.auto_trade_enabled ? 'on' : 'off');
   document.getElementById('risk-pill').textContent =
-    `Trades today: ${s.trades_today} · Realized: $${s.realized_pnl_today}` +
+    `${s.market_session || '—'} · Trades today: ${s.trades_today} · Realized: $${s.realized_pnl_today}` +
     (s.can_trade ? '' : ` · BLOCKED: ${s.blocked_reason}`);
   watching = s.watching;
   if (!activeSymbol && watching.length) { activeSymbol = watching[0]; refreshChart(); }

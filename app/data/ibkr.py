@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from ib_async import IB, Contract, LimitOrder, Order, Stock, StopOrder, util
 
+from app.data.orders import OrderPlacement
 from app.config import settings
 from app.models import Bar, Direction
 
@@ -83,7 +84,7 @@ class IbkrClient:
         entry: float,
         stop: float,
         target: float,
-    ) -> list[int]:
+    ) -> OrderPlacement:
         """Limit entry + OCA stop-loss and take-profit. Works outside RTH."""
         contract = self._stock(symbol)
         await self.ib.qualifyContractsAsync(contract)
@@ -107,22 +108,26 @@ class IbkrClient:
             child.transmit = i == 1  # transmit the whole bracket with the last child
             trades.append(self.ib.placeOrder(contract, child))
 
-        ids = [t.order.orderId for t in trades]
+        ids = [str(t.order.orderId) for t in trades]
         log.info("Bracket placed %s %s x%d entry=%.2f stop=%.2f target=%.2f ids=%s",
                  action, symbol, quantity, entry, stop, target, ids)
-        return ids
+        return OrderPlacement(order_ids=ids)
 
-    async def close_position(self, symbol: str, direction: Direction, quantity: int) -> int:
+    async def sync_pending_exits(self, trades: list) -> None:
+        pass  # IBKR brackets include exits at submission
+
+    async def close_position(self, symbol: str, direction: Direction, quantity: int) -> str:
         contract = self._stock(symbol)
         await self.ib.qualifyContractsAsync(contract)
         action = "SELL" if direction == Direction.LONG else "BUY"
         order = Order(action=action, totalQuantity=quantity, orderType="MKT", outsideRth=True)
         trade = self.ib.placeOrder(contract, order)
-        return trade.order.orderId
+        return str(trade.order.orderId)
 
-    def cancel_orders(self, order_ids: list[int]) -> None:
+    def cancel_orders(self, order_ids: list[str]) -> None:
+        want = {oid for oid in order_ids}
         for t in self.ib.openTrades():
-            if t.order.orderId in order_ids:
+            if str(t.order.orderId) in want:
                 self.ib.cancelOrder(t.order)
 
     async def account_summary(self) -> dict:

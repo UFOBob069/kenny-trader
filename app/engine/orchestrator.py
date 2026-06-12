@@ -13,7 +13,7 @@ from app.ai.analyst import CatalystAnalyst
 from app.ai.confidence import score_signal
 from app.config import settings
 from app.data.fmp import FmpClient
-from app.data.ibkr import IbkrClient
+from app.data.broker import make_broker
 from app.db.store import make_store
 from app.engine.risk import RiskManager, RuntimeRules
 from app.engine.scanner import Scanner
@@ -35,10 +35,10 @@ class Orchestrator:
         self.rules = RuntimeRules(settings)
         self.risk = RiskManager(self.rules)
         self.fmp = FmpClient()
-        self.ibkr = IbkrClient()
+        self.broker = make_broker()
         self.scanner = Scanner(self.fmp)
         self.analyst = CatalystAnalyst()
-        self.trader = Trader(self.ibkr, self.store, self.risk)
+        self.trader = Trader(self.broker, self.store, self.risk)
 
         self.detectors: dict[str, SetupDetector] = {}
         self.candidates: dict[str, Candidate] = {}
@@ -50,10 +50,10 @@ class Orchestrator:
 
     async def start(self) -> None:
         try:
-            await self.ibkr.connect()
+            await self.broker.connect()
             self.connected = True
         except Exception:
-            log.exception("IBKR connection failed — running in signal-only mode (no data, no orders)")
+            log.exception("Broker connection failed — running in signal-only mode (no data, no orders)")
         self._tasks = [
             asyncio.create_task(self._scan_loop(), name="scan"),
             asyncio.create_task(self._bar_loop(), name="bars"),
@@ -64,7 +64,7 @@ class Orchestrator:
         for t in self._tasks:
             t.cancel()
         await self.fmp.close()
-        self.ibkr.disconnect()
+        self.broker.disconnect()
 
     # ------------------------------------------------------------------ #
 
@@ -81,7 +81,7 @@ class Orchestrator:
             await asyncio.sleep(SCAN_INTERVAL)
 
     async def _init_detector(self, symbol: str) -> None:
-        prior, today = await self.ibkr.prior_session_bars(symbol)
+        prior, today = await self.broker.prior_session_bars(symbol)
         det = SetupDetector(symbol, prior_day_bars=prior)
         cand = self.candidates.get(symbol)
         for bar in today:
@@ -97,7 +97,7 @@ class Orchestrator:
                 continue
             for symbol, det in list(self.detectors.items()):
                 try:
-                    bars = await self.ibkr.minute_bars(symbol, days=1)
+                    bars = await self.broker.minute_bars(symbol, days=1)
                     seen = self._bar_counts.get(symbol, 0)
                     new = bars[seen:]
                     if not new:
@@ -152,7 +152,7 @@ class Orchestrator:
         if sig.status != SignalStatus.PENDING:
             return {"ok": False, "error": f"signal is {sig.status.value}"}
         if not self.connected:
-            return {"ok": False, "error": "IBKR not connected"}
+            return {"ok": False, "error": "broker not connected"}
         # signals go stale fast
         age = (datetime.now(timezone.utc) - sig.created_at).total_seconds()
         if age > 600:
