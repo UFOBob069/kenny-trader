@@ -80,10 +80,26 @@ def get_settings():
     return orch.rules.as_dict()
 
 
+_CAP_FILTER_KEYS = {"min_market_cap_filter_enabled", "min_market_cap_millions"}
+
+
 @app.put("/api/settings")
 async def put_settings(patch: dict):
     orch.rules.update(patch)
+    if _CAP_FILTER_KEYS & patch.keys():
+        await orch.rescan_universe()
     return orch.rules.as_dict()
+
+
+@app.post("/api/filters/market-cap/toggle")
+async def toggle_market_cap_filter():
+    orch.rules.min_market_cap_filter_enabled = not orch.rules.min_market_cap_filter_enabled
+    await orch.rescan_universe()
+    return {
+        "ok": True,
+        "min_market_cap_filter_enabled": orch.rules.min_market_cap_filter_enabled,
+        "min_market_cap_floor_usd": orch.rules.min_market_cap_floor_usd,
+    }
 
 
 @app.post("/api/automation/toggle")
@@ -114,6 +130,8 @@ def status():
         "realized_pnl_today": round(orch.risk.realized_pnl_today, 2),
         "can_trade": can,
         "blocked_reason": reason,
+        "min_market_cap_filter_enabled": orch.rules.min_market_cap_filter_enabled,
+        "min_market_cap_millions": orch.rules.min_market_cap_millions,
     }
 
 

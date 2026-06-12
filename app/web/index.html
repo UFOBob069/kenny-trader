@@ -19,8 +19,11 @@
   .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
   .pill.on  { color: var(--green); }
   .pill.off { color: var(--red); }
-  #auto-toggle { margin-left: auto; border: 0; padding: 6px 14px; border-radius: 6px;
+  #cap-toggle, #auto-toggle { border: 0; padding: 6px 14px; border-radius: 6px;
                  cursor: pointer; font-weight: 600; color: #fff; }
+  #cap-toggle { margin-left: auto; }
+  #cap-toggle.off { background: var(--green); }
+  #cap-toggle.on  { background: #5a6a8a; }
   #auto-toggle.off { background: var(--green); }
   #auto-toggle.on  { background: var(--red); }
   main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
@@ -81,7 +84,9 @@
   <h1>VWAP Event Trading Copilot</h1>
   <span id="broker-pill" class="pill off">Broker …</span>
   <span id="auto-pill" class="pill off">AUTO …</span>
+  <span id="cap-pill" class="pill on">Cap …</span>
   <span id="risk-pill" class="pill">—</span>
+  <button id="cap-toggle" class="on" onclick="toggleMarketCapFilter()">Disable Cap Filter</button>
   <button id="auto-toggle" class="off" onclick="toggleAuto()">Enable Auto-Trade</button>
 </header>
 <main>
@@ -90,7 +95,7 @@
       <h2>Today's Watchlist <span style="color:var(--muted);font-weight:400;text-transform:none">— earnings + movers</span></h2>
       <div class="watch-scroll">
         <table id="watchlist">
-          <thead><tr><th>Symbol</th><th>Type</th><th>Price</th><th>Gap</th><th>RVol</th><th>Score</th><th>Status</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Type</th><th>Mkt Cap</th><th>Price</th><th>Gap</th><th>RVol</th><th>Score</th><th>Status</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -134,6 +139,6 @@
     </div>
   </aside>
 </main>
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=5"></script>
 </body>
 </html>

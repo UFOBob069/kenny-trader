@@ -1,4 +1,4 @@
-from app.data.finnhub import normalize_earnings
+from app.data.finnhub import market_cap_from_profile, normalize_earnings
 
 
 def test_normalize_earnings_calendar_row():
@@ -13,6 +13,11 @@ def test_normalize_earnings_calendar_row():
     assert out["actualEarningResult"] == 1.52
     assert out["estimatedEarning"] == 1.50
     assert out["revenue"] == 90_000_000_000
+
+
+def test_market_cap_from_profile_millions():
+    assert market_cap_from_profile({"marketCapitalization": 2500.5}) == 2_500_500_000
+    assert market_cap_from_profile({}) is None
 
 
 def test_normalize_earnings_history_row():

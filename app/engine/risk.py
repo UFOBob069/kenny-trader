@@ -19,9 +19,19 @@ class RuntimeRules:
         self.max_daily_loss: float = cfg.max_daily_loss
         self.risk_per_trade: float = cfg.risk_per_trade
         self.max_position_size: float = cfg.max_position_size
+        self.min_market_cap_filter_enabled: bool = True
+        self.min_market_cap_millions: float = 500.0  # $500M when filter is on
+
+    @property
+    def min_market_cap_floor_usd(self) -> float:
+        if not self.min_market_cap_filter_enabled:
+            return 0.0
+        return self.min_market_cap_millions * 1_000_000
 
     def as_dict(self) -> dict:
-        return dict(self.__dict__)
+        d = dict(self.__dict__)
+        d["min_market_cap_floor_usd"] = self.min_market_cap_floor_usd
+        return d
 
     def update(self, patch: dict) -> None:
         for k, v in patch.items():

@@ -13,6 +13,14 @@ log = logging.getLogger(__name__)
 BASE = "https://finnhub.io/api/v1"
 
 
+def market_cap_from_profile(profile: dict) -> float | None:
+    """Finnhub profile2 returns marketCapitalization in millions USD."""
+    mcap = profile.get("marketCapitalization")
+    if mcap is None:
+        return None
+    return float(mcap) * 1_000_000
+
+
 def normalize_earnings(row: dict) -> dict:
     """Map Finnhub fields to the shape used by the confidence engine."""
     return {
@@ -58,6 +66,14 @@ class FinnhubClient:
         if not isinstance(rows, list) or not rows:
             return None
         return normalize_earnings(rows[0])
+
+    async def market_cap_usd(self, symbol: str) -> float | None:
+        if not settings.finnhub_api_key:
+            return None
+        data = await self._get("/stock/profile2", symbol=symbol.upper())
+        if not isinstance(data, dict) or not data.get("symbol"):
+            return None
+        return market_cap_from_profile(data)
 
     async def company_news(self, symbol: str, days: int = 7) -> list[str]:
         from datetime import datetime

@@ -18,6 +18,7 @@ class DailyScanData:
         self.finnhub = finnhub
         self.alpaca = alpaca
         self._earnings_rows: dict[str, dict] = {}
+        self._cap_cache: dict[str, float | None] = {}
 
     async def close(self) -> None:
         await self.finnhub.close()
@@ -47,6 +48,32 @@ class DailyScanData:
         if not self.alpaca:
             return None
         return await self.alpaca.quote_snapshot(symbol)
+
+    async def market_cap(self, symbol: str) -> float | None:
+        sym = symbol.upper()
+        if sym not in self._cap_cache:
+            self._cap_cache[sym] = await self.finnhub.market_cap_usd(sym)
+        return self._cap_cache[sym]
+
+    async def filter_by_market_cap(self, symbols: dict[str, str], floor_usd: float) -> dict[str, str]:
+        """Drop symbols below floor_usd (Finnhub). floor_usd=0 disables."""
+        if floor_usd <= 0:
+            return symbols
+        kept: dict[str, str] = {}
+        dropped = 0
+        for sym, catalyst in symbols.items():
+            cap = await self.market_cap(sym)
+            if cap is not None and cap >= floor_usd:
+                kept[sym] = catalyst
+            else:
+                dropped += 1
+        log.info(
+            "Market cap filter (>= $%.0fM): %d kept, %d dropped",
+            floor_usd / 1_000_000,
+            len(kept),
+            dropped,
+        )
+        return kept
 
     async def earnings_for(self, symbol: str, catalyst: str) -> dict | None:
         if catalyst != "earnings":

@@ -73,36 +73,45 @@ class Orchestrator:
 
     # ------------------------------------------------------------------ #
 
+    async def rescan_universe(self) -> None:
+        """Re-run daily universe + watchlist (e.g. after filter settings change)."""
+        await self._run_scan()
+
     async def _scan_loop(self) -> None:
         while True:
             try:
-                self.scan_universe = await self.scanner.universe()
-                self.watchlist = {}
-                for sym in self.scanner.rank_universe(self.scan_universe):
-                    catalyst = self.scan_universe.get(sym, "news")
-                    item = await self.scanner.watch_entry(sym, catalyst)
-                    item.watching = sym in self.detectors
-                    self.watchlist[sym] = item
-
-                ranked = sorted(self.watchlist.values(), key=lambda w: w.score, reverse=True)
-                for item in ranked[:MAX_ACTIVE_SYMBOLS]:
-                    if item.symbol not in self.detectors and self.connected:
-                        await self._init_detector(item.symbol)
-                        item.watching = True
-
-                filtered = await self.scanner.scan()
-                for cand in filtered:
-                    self.candidates[cand.symbol] = cand
-
-                log.info(
-                    "Scan complete — universe: %d, watching: %d, filtered: %d",
-                    len(self.scan_universe),
-                    len(self.detectors),
-                    len(filtered),
-                )
+                await self._run_scan()
             except Exception:
                 log.exception("Scan loop error")
             await asyncio.sleep(SCAN_INTERVAL)
+
+    async def _run_scan(self) -> None:
+        self.scan_universe = await self.scanner.filtered_universe(
+            self.rules.min_market_cap_floor_usd,
+        )
+        self.watchlist = {}
+        for sym in self.scanner.rank_universe(self.scan_universe):
+            catalyst = self.scan_universe.get(sym, "news")
+            item = await self.scanner.watch_entry(sym, catalyst)
+            item.watching = sym in self.detectors
+            self.watchlist[sym] = item
+
+        ranked = sorted(self.watchlist.values(), key=lambda w: w.score, reverse=True)
+        for item in ranked[:MAX_ACTIVE_SYMBOLS]:
+            if item.symbol not in self.detectors and self.connected:
+                await self._init_detector(item.symbol)
+                item.watching = True
+
+        filtered = await self.scanner.scan(self.scan_universe)
+        for cand in filtered:
+            self.candidates[cand.symbol] = cand
+
+        log.info(
+            "Scan complete — universe: %d, watching: %d, filtered: %d",
+            len(self.scan_universe),
+            len(self.detectors),
+            len(filtered),
+        )
 
     async def _init_detector(self, symbol: str) -> None:
         prior, today = await self.broker.prior_session_bars(symbol)

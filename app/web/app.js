@@ -46,6 +46,13 @@ async function refreshChart() {
   } catch (e) { /* chart not ready */ }
 }
 
+function fmtCap(n) {
+  if (n == null) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `$${Math.round(n / 1e6)}M`;
+  return `$${Math.round(n)}`;
+}
+
 function checkLine(name, c) {
   if (!c) return '';
   const cls = c.ok ? 'ok' : 'no';
@@ -61,7 +68,7 @@ function renderDetail(d) {
   }
   const badge = d.qualified
     ? '<span class="badge ok">MEETS CRITERIA</span>'
-    : '<span class="badge no">BUILDING SETUP</span>';
+    : '<span class="badge no">NOT READY</span>';
   const feed = d.watching
     ? '<span class="badge ok">CHART LIVE</span>'
     : '<span class="badge no">TOP 8 CHARTS ONLY</span>';
@@ -81,6 +88,7 @@ function renderDetail(d) {
       <span style="margin-left:auto;color:var(--blue);font-weight:600">${d.score} score</span>
     </div>
     <div class="detail-grid">
+      <div class="detail-cell"><div class="lbl">Market Cap</div><div class="val">${fmtCap(d.market_cap_usd)}</div></div>
       <div class="detail-cell"><div class="lbl">Price</div><div class="val">${d.price != null ? '$' + d.price : '—'}</div></div>
       <div class="detail-cell"><div class="lbl">Gap</div><div class="val">${d.gap_pct != null ? (d.gap_pct > 0 ? '+' : '') + d.gap_pct + '%' : '—'}</div></div>
       <div class="detail-cell"><div class="lbl">Rel Volume</div><div class="val">${d.relative_volume != null ? d.relative_volume + 'x' : '—'}</div></div>
@@ -122,14 +130,16 @@ function renderWatchlistRows() {
     const qual = w.qualified ? 'qualified' : '';
     const badge = w.qualified
       ? '<span class="badge ok">READY</span>'
-      : '<span class="badge no">building</span>';
+      : '<span class="badge no">not ready</span>';
     const gap = w.gap_pct != null ? `${w.gap_pct > 0 ? '+' : ''}${w.gap_pct}%` : '—';
     const rvol = w.relative_volume != null ? `${w.relative_volume}x` : '—';
     const price = w.price != null ? `$${w.price}` : '—';
+    const cap = fmtCap(w.market_cap_usd);
     const gapCls = w.gap_pct > 0 ? 'pos' : (w.gap_pct < 0 ? 'neg' : '');
     return `<tr class="${active} ${qual}" onclick="selectSymbol('${w.symbol}')">
       <td><strong>${w.symbol}</strong></td>
       <td>${w.catalyst}</td>
+      <td>${cap}</td>
       <td>${price}</td>
       <td class="${gapCls}">${gap}</td>
       <td>${rvol}</td>
@@ -160,6 +170,19 @@ async function refreshStatus() {
   toggle.className = s.auto_trade_enabled ? 'on' : 'off';
   const uniN = Object.keys(s.scan_universe || {}).length;
   const qualN = watchItems.filter(w => w.qualified).length;
+  const capPill = document.getElementById('cap-pill');
+  if (capPill) {
+    const on = s.min_market_cap_filter_enabled;
+    capPill.textContent = on
+      ? `Cap ≥ $${s.min_market_cap_millions}M`
+      : 'Cap filter OFF';
+    capPill.className = 'pill ' + (on ? 'on' : 'off');
+  }
+  const capToggle = document.getElementById('cap-toggle');
+  if (capToggle) {
+    capToggle.textContent = s.min_market_cap_filter_enabled ? 'Disable Cap Filter' : 'Enable Cap Filter';
+    capToggle.className = s.min_market_cap_filter_enabled ? 'on' : 'off';
+  }
   document.getElementById('risk-pill').textContent =
     `${s.market_session || '—'} · List: ${uniN} · Ready: ${qualN} · Charts: ${(s.watching || []).length}` +
     ` · Trades: ${s.trades_today} · P&L: $${s.realized_pnl_today}` +
@@ -227,8 +250,25 @@ async function refreshPnl() {
   }).join('');
 }
 
-const EDITABLE = ['auto_trade_threshold', 'max_trades_per_day',
-                  'max_daily_loss', 'risk_per_trade', 'max_position_size'];
+const SETTING_LABELS = {
+  min_market_cap_filter_enabled: 'market cap filter',
+  min_market_cap_millions: 'min market cap ($M)',
+  auto_trade_threshold: 'auto trade threshold',
+  max_trades_per_day: 'max trades per day',
+  max_daily_loss: 'max daily loss',
+  risk_per_trade: 'risk per trade',
+  max_position_size: 'max position size',
+};
+
+const EDITABLE = [
+  'min_market_cap_filter_enabled',
+  'min_market_cap_millions',
+  'auto_trade_threshold',
+  'max_trades_per_day',
+  'max_daily_loss',
+  'risk_per_trade',
+  'max_position_size',
+];
 
 async function refreshSettings() {
   const s = await j('/api/settings');
@@ -236,8 +276,8 @@ async function refreshSettings() {
     const v = s[k];
     const input = typeof v === 'boolean'
       ? `<input type="checkbox" id="set-${k}" ${v ? 'checked' : ''}>`
-      : `<input type="number" id="set-${k}" value="${v}">`;
-    return `<div class="settings-row"><span>${k.replaceAll('_', ' ')}</span>${input}</div>`;
+      : `<input type="number" id="set-${k}" value="${v}" ${k === 'min_market_cap_millions' && !s.min_market_cap_filter_enabled ? 'disabled' : ''}>`;
+    return `<div class="settings-row"><span>${SETTING_LABELS[k] || k}</span>${input}</div>`;
   }).join('') + `<div class="settings-row"><span></span>
     <button class="buy" style="padding:5px 14px;border:0;border-radius:6px;cursor:pointer"
       onclick="saveSettings()">Save</button></div>`;
@@ -250,6 +290,8 @@ async function saveSettings() {
     patch[k] = el.type === 'checkbox' ? el.checked : Number(el.value);
   }
   await j('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  refreshSettings();
+  refreshWatchlist();
   refreshStatus();
 }
 
@@ -258,6 +300,13 @@ async function ignore(id)  { await j(`/api/signals/${id}/ignore`,  { method: 'PO
 async function closeTrade(id) { await j(`/api/trades/${id}/close`, { method: 'POST' }); refreshAll(); }
 async function toggleAuto() {
   await j('/api/automation/toggle', { method: 'POST' });
+  refreshStatus();
+}
+
+async function toggleMarketCapFilter() {
+  await j('/api/filters/market-cap/toggle', { method: 'POST' });
+  refreshSettings();
+  refreshWatchlist();
   refreshStatus();
 }
 

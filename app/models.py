@@ -62,6 +62,7 @@ class WatchItem(BaseModel):
     price: Optional[float] = None
     gap_pct: Optional[float] = None
     relative_volume: Optional[float] = None
+    market_cap_usd: Optional[float] = None
     score: float = 0.0
     qualified: bool = False
     watching: bool = False                   # chart + bar feed active

@@ -28,6 +28,10 @@ class Scanner:
             symbols.setdefault(sym.upper(), "news")
         return symbols
 
+    async def filtered_universe(self, min_cap_usd: float) -> dict[str, str]:
+        """Universe after min market-cap filter."""
+        return await self.scan_data.filter_by_market_cap(await self.universe(), min_cap_usd)
+
     def rank_universe(self, symbols: dict[str, str]) -> list[str]:
         """Earnings names first, then movers, then watchlist."""
         earnings = sorted(s for s, c in symbols.items() if c == "earnings")
@@ -35,8 +39,8 @@ class Scanner:
         other = sorted(s for s, c in symbols.items() if c not in ("earnings", "mover"))
         return earnings + movers + other
 
-    async def scan(self) -> list[Candidate]:
-        symbols = await self.universe()
+    async def scan(self, symbols: dict[str, str] | None = None) -> list[Candidate]:
+        symbols = symbols if symbols is not None else await self.universe()
         log.info("Scanning %d symbols from daily universe", len(symbols))
         candidates: list[Candidate] = []
         for sym, catalyst in symbols.items():
@@ -70,12 +74,15 @@ class Scanner:
         earnings = await self.scan_data.earnings_for(sym, catalyst) if with_news else None
         headlines = await self.scan_data.headlines(sym) if with_news else []
 
+        market_cap = await self.scan_data.market_cap(sym)
+
         return WatchItem(
             symbol=sym,
             catalyst=catalyst,
             price=round(price, 2),
             gap_pct=round(gap_pct, 2),
             relative_volume=round(rvol, 2),
+            market_cap_usd=round(market_cap) if market_cap is not None else None,
             score=score,
             qualified=qualified,
             checks=checks,
