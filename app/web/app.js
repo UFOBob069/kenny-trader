@@ -99,11 +99,47 @@ function fmtCap(n) {
   return `$${Math.round(n)}`;
 }
 
-function checkLine(name, c) {
+function checkLine(name, c, weight) {
   if (!c) return '';
   const cls = c.ok ? 'ok' : 'no';
   const icon = c.ok ? '✓' : '✗';
-  return `<div class="checkline ${cls}">${icon} ${name}: ${c.value} (need ${c.need}${name === 'gap' ? '%' : name === 'rvol' ? 'x' : ''})</div>`;
+  const unit = name === 'gap' ? '%' : name === 'rvol' ? 'x' : '';
+  const wt = weight != null ? ` <span class="bd-wt">${weight}%</span>` : '';
+  return `<div class="checkline ${cls}">${icon} ${name}${wt}: ${c.value} (need ${c.need}${unit})</div>`;
+}
+
+function weightedBarRow(label, weightPct, value, fillClass = '') {
+  const v = Math.min(100, Math.max(0, value ?? 0));
+  const contrib = (v * weightPct / 100).toFixed(1);
+  return `<div class="bd-row">
+    <span class="bd-lbl">${label} <span class="bd-wt">${weightPct}%</span></span>
+    <div class="bd-bar"><div class="bd-fill ${fillClass}" style="width:${v}%"></div></div>
+    <span class="bd-val">${Math.round(v)} <span class="bd-contrib">+${contrib}</span></span>
+  </div>`;
+}
+
+function scanScoreBlock(checks, total) {
+  const gapP = checks?.gap ? Math.min(100, Math.abs(checks.gap.value) / checks.gap.need * 100) : 0;
+  const rvolP = checks?.rvol ? Math.min(100, checks.rvol.value / checks.rvol.need * 100) : 0;
+  const priceP = checks?.price ? Math.min(100, checks.price.value / checks.price.need * 100) : 0;
+  return `<div class="bd-block">
+    <div class="bd-title">Scan score breakdown</div>
+    ${weightedBarRow('Gap', 40, gapP, 'scan')}
+    ${weightedBarRow('RVol', 40, rvolP, 'scan')}
+    ${weightedBarRow('Price', 20, priceP, 'scan')}
+    <div class="bd-total"><span>Scan total</span><span style="color:var(--green)">${total ?? '—'}</span></div>
+  </div>`;
+}
+
+function confidenceBlock(b, total) {
+  if (!b) return '';
+  return `<div class="bd-block">
+    <div class="bd-title">Trade confidence breakdown</div>
+    ${weightedBarRow('Technical', 45, b.technical)}
+    ${weightedBarRow('Fundamental', 25, b.fundamental)}
+    ${weightedBarRow('AI', 30, b.ai)}
+    <div class="bd-total"><span>Confidence</span><span style="color:var(--blue)">${total ?? b.total}%</span></div>
+  </div>`;
 }
 
 function renderDetail(d) {
@@ -131,17 +167,21 @@ function renderDetail(d) {
       <span class="badge">${d.catalyst}</span>
       ${badge}
       ${feed}
-      <span style="margin-left:auto;color:var(--blue);font-weight:600">${d.score} score</span>
+      <span style="margin-left:auto;text-align:right">
+        <span style="font-size:10px;color:var(--muted);text-transform:uppercase">Scan score</span><br>
+        <span style="color:var(--green);font-weight:600;font-size:18px">${d.score}</span>
+      </span>
     </div>
+    ${scanScoreBlock(d.checks, d.score)}
     <div class="detail-grid">
       <div class="detail-cell"><div class="lbl">Market Cap</div><div class="val">${fmtCap(d.market_cap_usd)}</div></div>
       <div class="detail-cell"><div class="lbl">Price</div><div class="val">${d.price != null ? '$' + d.price : '—'}</div></div>
       <div class="detail-cell"><div class="lbl">Gap</div><div class="val">${d.gap_pct != null ? (d.gap_pct > 0 ? '+' : '') + d.gap_pct + '%' : '—'}</div></div>
       <div class="detail-cell"><div class="lbl">Rel Volume</div><div class="val">${d.relative_volume != null ? d.relative_volume + 'x' : '—'}</div></div>
     </div>
-    ${checkLine('gap', d.checks?.gap)}
-    ${checkLine('rvol', d.checks?.rvol)}
-    ${checkLine('price', d.checks?.price)}
+    ${checkLine('gap', d.checks?.gap, 40)}
+    ${checkLine('rvol', d.checks?.rvol, 40)}
+    ${checkLine('price', d.checks?.price, 20)}
     ${earnings}
     <h2 style="font-size:12px;color:var(--muted);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.06em">Headlines</h2>
     ${news}`;
@@ -189,7 +229,7 @@ function renderWatchlistRows() {
       <td>${price}</td>
       <td class="${gapCls}">${gap}</td>
       <td>${rvol}</td>
-      <td class="score">${w.score}</td>
+      <td class="scan-score" title="Scan: gap 40% · rvol 40% · price 20%">${w.score}</td>
       <td>${badge}</td>
     </tr>`;
   }).join('');
@@ -254,21 +294,23 @@ async function setMarketCap(millions) {
 }
 
 function signalCard(s) {
-  const reasons = (s.breakdown?.reasons || []).slice(0, 6).join(' · ');
+  const reasons = (s.breakdown?.reasons || []).slice(0, 4).join(' · ');
   const thresh = lastStatus.auto_trade_threshold ?? 90;
   const autoHint = lastStatus.auto_trade_enabled && s.confidence < thresh
-    ? `<div class="auto-hint">Auto skipped — needs ${thresh}%+ confidence (this signal is ${s.confidence}%)</div>`
+    ? `<div class="auto-hint">Auto skipped — needs ${thresh}%+ trade confidence</div>`
     : '';
+  const b = s.breakdown;
   return `<div class="signal">
     <div class="head">
       <span><span class="sym-link" onclick="selectSymbol('${s.symbol}')">${s.symbol}</span>
         <span style="color:${s.direction === 'LONG' ? 'var(--green)' : 'var(--red)'}">${s.direction}</span></span>
-      <span class="conf">${s.confidence}%</span>
+      <span class="conf"><span class="conf-lbl">Trade confidence</span>${s.confidence}%</span>
     </div>
+    ${confidenceBlock(b, s.confidence)}
     <div class="levels">
       <span>Entry ${s.entry}</span><span>Stop ${s.stop}</span><span>Target ${s.target}</span>
     </div>
-    <div class="reasons">${s.setup.replaceAll('_', ' ')} — ${reasons}</div>
+    <div class="reasons">${s.setup.replaceAll('_', ' ')}${reasons ? ' — ' + reasons : ''}</div>
     ${autoHint}
     <div class="actions">
       <button class="buy" onclick="approve('${s.id}')">${s.direction === 'LONG' ? 'Buy' : 'Short'}</button>

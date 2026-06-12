@@ -58,9 +58,27 @@
   aside { display: flex; flex-direction: column; gap: 12px; }
   .signal { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
   .signal .head { display: flex; justify-content: space-between; font-weight: 600; }
-  .signal .conf { color: var(--blue); }
+  .signal .conf { color: var(--blue); text-align: right; }
+  .signal .conf-lbl { display: block; font-size: 10px; color: var(--muted); font-weight: 500;
+                      text-transform: uppercase; letter-spacing: .04em; }
   .signal .levels { display: flex; gap: 14px; color: var(--muted); font-size: 12.5px; margin: 4px 0; }
   .signal .reasons { font-size: 12px; color: var(--muted); }
+  .panel-sub { font-size: 11.5px; color: var(--muted); font-weight: 400; text-transform: none;
+               letter-spacing: 0; margin: -4px 0 8px; line-height: 1.35; }
+  .bd-block { margin: 8px 0 6px; padding: 8px; background: var(--bg); border-radius: 6px; }
+  .bd-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+              margin-bottom: 6px; }
+  .bd-row { display: grid; grid-template-columns: 72px 1fr 52px; gap: 6px; align-items: center;
+            font-size: 11.5px; margin: 4px 0; }
+  .bd-lbl { color: var(--muted); }
+  .bd-wt { color: var(--blue); font-size: 10px; }
+  .bd-bar { height: 5px; background: #2a3142; border-radius: 3px; overflow: hidden; }
+  .bd-fill { height: 100%; background: var(--blue); border-radius: 3px; }
+  .bd-fill.scan { background: var(--green); }
+  .bd-val { text-align: right; font-weight: 600; color: var(--text); }
+  .bd-contrib { font-weight: 400; color: var(--muted); font-size: 10px; }
+  .bd-total { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;
+              margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
   .signal .actions { display: flex; gap: 8px; margin-top: 8px; }
   .signal .actions button { flex: 1; padding: 6px 0; border: 0; border-radius: 6px;
                             cursor: pointer; font-weight: 600; }
@@ -84,8 +102,8 @@
   #watchlist tbody tr { cursor: pointer; }
   #watchlist tbody tr:hover { background: rgba(255,255,255,0.03); }
   #watchlist tbody tr.active { background: rgba(43, 196, 226, 0.1); }
-  #watchlist td.score { color: var(--blue); font-weight: 600; }
-  #watchlist tr.qualified td.score { color: var(--green); }
+  #watchlist td.scan-score { color: var(--blue); font-weight: 600; }
+  #watchlist tr.qualified td.scan-score { color: var(--green); }
   .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
   .badge.ok { background: rgba(38,166,154,.2); color: var(--green); }
   .badge.no { background: rgba(126,133,151,.15); color: var(--muted); }
@@ -114,9 +132,10 @@
   <div>
     <div class="panel">
       <h2>Today's Watchlist <span style="color:var(--muted);font-weight:400;text-transform:none">— earnings + movers</span></h2>
+      <p class="panel-sub">Scan score ranks candidates (gap 40% · rvol 40% · price 20%). 100 = passes all filters.</p>
       <div class="watch-scroll">
         <table id="watchlist">
-          <thead><tr><th>Symbol</th><th>Type</th><th>Mkt Cap</th><th>Price</th><th>Gap</th><th>RVol</th><th>Score</th><th>Status</th></tr></thead>
+          <thead><tr><th>Symbol</th><th>Type</th><th>Mkt Cap</th><th>Price</th><th>Gap</th><th>RVol</th><th title="Gap 40% + RVol 40% + Price 20%">Scan</th><th>Status</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -161,6 +180,7 @@
   <aside>
     <div class="panel">
       <h2>Pending Signals</h2>
+      <p class="panel-sub">Trade confidence = technical 45% · fundamental 25% · AI 30%. Used for auto-trade.</p>
       <div id="pending"></div>
     </div>
     <div class="panel">
@@ -179,6 +199,6 @@
   </aside>
 </main>
 <div id="toast"></div>
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>
