@@ -15,12 +15,12 @@ log = logging.getLogger(__name__)
 
 
 class Scanner:
-    def __init__(self, scan: DailyScanData, watchlist: set[str] | None = None) -> None:
-        self.scan = scan
+    def __init__(self, scan_data: DailyScanData, watchlist: set[str] | None = None) -> None:
+        self.scan_data = scan_data
         self.watchlist: set[str] = watchlist or set()
 
     async def scan(self) -> list[Candidate]:
-        symbols = await self.scan.daily_symbols()
+        symbols = await self.scan_data.daily_symbols()
 
         for sym in self.watchlist:
             symbols.setdefault(sym.upper(), "news")
@@ -37,7 +37,7 @@ class Scanner:
         return candidates
 
     async def _evaluate(self, symbol: str, catalyst: str) -> Candidate | None:
-        quote = await self.scan.quote(symbol)
+        quote = await self.scan_data.quote(symbol)
         if not quote:
             return None
 
@@ -56,8 +56,8 @@ class Scanner:
             if abs(gap_pct) < settings.min_gap_pct or rvol < settings.min_relative_volume:
                 return None
 
-        earnings = await self.scan.earnings_for(symbol, catalyst)
-        headlines = await self.scan.headlines(symbol)
+        earnings = await self.scan_data.earnings_for(symbol, catalyst)
+        headlines = await self.scan_data.headlines(symbol)
 
         return Candidate(
             symbol=symbol,
