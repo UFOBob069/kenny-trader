@@ -56,6 +56,20 @@ class Candidate(BaseModel):
     headlines: list[str] = Field(default_factory=list)
 
 
+class WatchItem(BaseModel):
+    symbol: str
+    catalyst: str = ""
+    price: Optional[float] = None
+    gap_pct: Optional[float] = None
+    relative_volume: Optional[float] = None
+    score: float = 0.0
+    qualified: bool = False
+    watching: bool = False                   # chart + bar feed active
+    checks: dict = Field(default_factory=dict)
+    earnings: Optional[dict] = None
+    headlines: list[str] = Field(default_factory=list)
+
+
 class ConfidenceBreakdown(BaseModel):
     technical: float = 0.0
     fundamental: float = 0.0

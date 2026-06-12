@@ -20,7 +20,7 @@ from app.db.store import make_store
 from app.engine.risk import RiskManager, RuntimeRules
 from app.engine.scanner import Scanner
 from app.engine.trader import Trader
-from app.models import Candidate, Signal, SignalStatus
+from app.models import Candidate, Signal, SignalStatus, WatchItem
 from app.signals.detector import SetupDetector
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ class Orchestrator:
         self.detectors: dict[str, SetupDetector] = {}
         self.candidates: dict[str, Candidate] = {}
         self.scan_universe: dict[str, str] = {}
+        self.watchlist: dict[str, WatchItem] = {}
         self._bar_counts: dict[str, int] = {}
         self._tasks: list[asyncio.Task] = []
         self.connected = False
@@ -76,15 +77,18 @@ class Orchestrator:
         while True:
             try:
                 self.scan_universe = await self.scanner.universe()
-                watchlist = self.scanner.rank_universe(self.scan_universe)[:MAX_ACTIVE_SYMBOLS]
-
-                for sym in watchlist:
+                self.watchlist = {}
+                for sym in self.scanner.rank_universe(self.scan_universe):
                     catalyst = self.scan_universe.get(sym, "news")
-                    snap = await self.scanner.snapshot(sym, catalyst)
-                    if snap:
-                        self.candidates[sym] = snap
-                    if sym not in self.detectors and self.connected:
-                        await self._init_detector(sym)
+                    item = await self.scanner.watch_entry(sym, catalyst)
+                    item.watching = sym in self.detectors
+                    self.watchlist[sym] = item
+
+                ranked = sorted(self.watchlist.values(), key=lambda w: w.score, reverse=True)
+                for item in ranked[:MAX_ACTIVE_SYMBOLS]:
+                    if item.symbol not in self.detectors and self.connected:
+                        await self._init_detector(item.symbol)
+                        item.watching = True
 
                 filtered = await self.scanner.scan()
                 for cand in filtered:
@@ -196,6 +200,16 @@ class Orchestrator:
             return {"ok": False, "error": "trade not found"}
         await self.trader.close(trade)
         return {"ok": True, "realized_pnl": trade.realized_pnl}
+
+    async def watch_detail(self, symbol: str) -> WatchItem | None:
+        sym = symbol.upper()
+        catalyst = self.scan_universe.get(sym)
+        if not catalyst:
+            return self.watchlist.get(sym)
+        item = await self.scanner.watch_entry(sym, catalyst, with_news=True)
+        item.watching = sym in self.detectors
+        self.watchlist[sym] = item
+        return item
 
     def chart(self, symbol: str) -> dict | None:
         det = self.detectors.get(symbol.upper())

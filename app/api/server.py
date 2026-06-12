@@ -117,6 +117,22 @@ def status():
     }
 
 
+# --- watchlist -------------------------------------------------------------- #
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    items = sorted(orch.watchlist.values(), key=lambda w: w.score, reverse=True)
+    return [i.model_dump() for i in items]
+
+
+@app.get("/api/watchlist/{symbol}")
+async def get_watch_detail(symbol: str):
+    item = await orch.watch_detail(symbol)
+    if not item:
+        return JSONResponse({"error": f"{symbol} not in today's scan"}, status_code=404)
+    return item.model_dump()
+
+
 # --- chart ------------------------------------------------------------------ #
 
 @app.get("/api/chart/{symbol}")

@@ -58,6 +58,26 @@
   .closebtn { background: var(--bg); border: 1px solid var(--border); color: var(--red);
               border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
   .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .watch-scroll { max-height: 240px; overflow-y: auto; }
+  #watchlist tbody tr { cursor: pointer; }
+  #watchlist tbody tr:hover { background: rgba(255,255,255,0.03); }
+  #watchlist tbody tr.active { background: rgba(43, 196, 226, 0.1); }
+  #watchlist td.score { color: var(--blue); font-weight: 600; }
+  #watchlist tr.qualified td.score { color: var(--green); }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+  .badge.ok { background: rgba(38,166,154,.2); color: var(--green); }
+  .badge.no { background: rgba(126,133,151,.15); color: var(--muted); }
+  .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .detail-head .sym { font-size: 20px; font-weight: 600; }
+  .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .detail-cell { background: var(--bg); border-radius: 6px; padding: 8px; }
+  .detail-cell .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .detail-cell .val { font-size: 15px; font-weight: 600; margin-top: 2px; }
+  .checkline { font-size: 12.5px; padding: 3px 0; color: var(--muted); }
+  .checkline.ok { color: var(--green); }
+  .checkline.no { color: var(--red); }
+  .headlines { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+  .headlines li { margin: 4px 0 4px 16px; }
 </style>
 </head>
 <body>
@@ -70,10 +90,25 @@
 </header>
 <main>
   <div>
-    <div class="panel" id="chart-wrap">
-      <h2>Kenny Chart — <span style="color:var(--blue)">VWAP</span> / <span style="color:var(--yellow)">Prior-Day VWAP</span></h2>
-      <div id="symtabs"></div>
+    <div class="panel">
+      <h2>Today's Watchlist <span style="color:var(--muted);font-weight:400;text-transform:none">— earnings + movers</span></h2>
+      <div class="watch-scroll">
+        <table id="watchlist">
+          <thead><tr><th>Symbol</th><th>Type</th><th>Price</th><th>Gap</th><th>RVol</th><th>Score</th><th>Status</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="watch-empty" class="empty">Waiting for scan…</div>
+    </div>
+    <div class="panel" id="chart-wrap" style="margin-top:12px">
+      <h2>Kenny Chart — <span id="chart-symbol" style="color:var(--blue)">—</span>
+        <span style="color:var(--muted);font-weight:400"> · </span>
+        <span style="color:var(--blue)">VWAP</span> / <span style="color:var(--yellow)">Prior-Day VWAP</span></h2>
       <div id="chart"></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <h2>Symbol Detail</h2>
+      <div id="detail-body" class="empty">Select a symbol from the watchlist.</div>
     </div>
     <div class="panel" style="margin-top:12px">
       <h2>Open Trades</h2>

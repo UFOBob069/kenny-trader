@@ -1,7 +1,7 @@
 /* VWAP Copilot dashboard */
 let chart, candleSeries, volumeSeries, vwapSeries, pdvSeries;
 let activeSymbol = null;
-let watching = [];
+let watchItems = [];
 
 function initChart() {
   const el = document.getElementById('chart');
@@ -46,22 +46,104 @@ async function refreshChart() {
   } catch (e) { /* chart not ready */ }
 }
 
-function renderTabs() {
-  const wrap = document.getElementById('symtabs');
-  wrap.innerHTML = '';
-  for (const s of watching) {
-    const b = document.createElement('button');
-    b.textContent = s;
-    b.className = s === activeSymbol ? 'active' : '';
-    b.onclick = () => { activeSymbol = s; renderTabs(); refreshChart(); };
-    wrap.appendChild(b);
+function checkLine(name, c) {
+  if (!c) return '';
+  const cls = c.ok ? 'ok' : 'no';
+  const icon = c.ok ? '✓' : '✗';
+  return `<div class="checkline ${cls}">${icon} ${name}: ${c.value} (need ${c.need}${name === 'gap' ? '%' : name === 'rvol' ? 'x' : ''})</div>`;
+}
+
+function renderDetail(d) {
+  const el = document.getElementById('detail-body');
+  if (!d || d.error) {
+    el.innerHTML = '<div class="empty">No detail available.</div>';
+    return;
   }
-  if (!watching.length) {
-    const n = window._scanUniverseCount || 0;
-    wrap.innerHTML = n
-      ? `<span class="empty">${n} symbols in today scan — charts load after the next scan cycle.</span>`
-      : '<span class="empty">No symbols in today scan yet — confirm FINNHUB_API_KEY is set. Overnight (market closed) is normal.</span>';
+  const badge = d.qualified
+    ? '<span class="badge ok">MEETS CRITERIA</span>'
+    : '<span class="badge no">BUILDING SETUP</span>';
+  const feed = d.watching
+    ? '<span class="badge ok">CHART LIVE</span>'
+    : '<span class="badge no">TOP 8 CHARTS ONLY</span>';
+  const earnings = d.earnings
+    ? `<div class="checkline">EPS est ${d.earnings.estimatedEarning ?? '—'} · act ${d.earnings.actualEarningResult ?? '—'}</div>`
+    : '';
+  const news = (d.headlines || []).length
+    ? `<ul class="headlines">${d.headlines.slice(0, 5).map(h => `<li>${h}</li>`).join('')}</ul>`
+    : '<div class="empty">No recent headlines loaded.</div>';
+
+  el.innerHTML = `
+    <div class="detail-head">
+      <span class="sym">${d.symbol}</span>
+      <span class="badge">${d.catalyst}</span>
+      ${badge}
+      ${feed}
+      <span style="margin-left:auto;color:var(--blue);font-weight:600">${d.score} score</span>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-cell"><div class="lbl">Price</div><div class="val">${d.price != null ? '$' + d.price : '—'}</div></div>
+      <div class="detail-cell"><div class="lbl">Gap</div><div class="val">${d.gap_pct != null ? (d.gap_pct > 0 ? '+' : '') + d.gap_pct + '%' : '—'}</div></div>
+      <div class="detail-cell"><div class="lbl">Rel Volume</div><div class="val">${d.relative_volume != null ? d.relative_volume + 'x' : '—'}</div></div>
+    </div>
+    ${checkLine('gap', d.checks?.gap)}
+    ${checkLine('rvol', d.checks?.rvol)}
+    ${checkLine('price', d.checks?.price)}
+    ${earnings}
+    <h2 style="font-size:12px;color:var(--muted);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.06em">Headlines</h2>
+    ${news}`;
+}
+
+async function selectSymbol(sym) {
+  activeSymbol = sym;
+  document.getElementById('chart-symbol').textContent = sym;
+  renderWatchlistRows();
+  try {
+    const d = await j(`/api/watchlist/${sym}`);
+    renderDetail(d);
+  } catch (e) {
+    renderDetail(null);
   }
+  refreshChart();
+}
+window.selectSymbol = selectSymbol;
+
+function renderWatchlistRows() {
+  const tbody = document.querySelector('#watchlist tbody');
+  const empty = document.getElementById('watch-empty');
+  if (!watchItems.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = 'Waiting for scan — confirm FINNHUB_API_KEY is set.';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = watchItems.map(w => {
+    const active = w.symbol === activeSymbol ? 'active' : '';
+    const qual = w.qualified ? 'qualified' : '';
+    const badge = w.qualified
+      ? '<span class="badge ok">READY</span>'
+      : '<span class="badge no">building</span>';
+    const gap = w.gap_pct != null ? `${w.gap_pct > 0 ? '+' : ''}${w.gap_pct}%` : '—';
+    const rvol = w.relative_volume != null ? `${w.relative_volume}x` : '—';
+    const price = w.price != null ? `$${w.price}` : '—';
+    const gapCls = w.gap_pct > 0 ? 'pos' : (w.gap_pct < 0 ? 'neg' : '');
+    return `<tr class="${active} ${qual}" onclick="selectSymbol('${w.symbol}')">
+      <td><strong>${w.symbol}</strong></td>
+      <td>${w.catalyst}</td>
+      <td>${price}</td>
+      <td class="${gapCls}">${gap}</td>
+      <td>${rvol}</td>
+      <td class="score">${w.score}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshWatchlist() {
+  watchItems = await j('/api/watchlist');
+  renderWatchlistRows();
+  if (!activeSymbol && watchItems.length) await selectSymbol(watchItems[0].symbol);
+  else if (activeSymbol) renderWatchlistRows();
 }
 
 async function refreshStatus() {
@@ -76,17 +158,12 @@ async function refreshStatus() {
   const toggle = document.getElementById('auto-toggle');
   toggle.textContent = s.auto_trade_enabled ? 'Disable Auto-Trade' : 'Enable Auto-Trade';
   toggle.className = s.auto_trade_enabled ? 'on' : 'off';
-  const uni = s.scan_universe || {};
-  window._scanUniverseCount = Object.keys(uni).length;
-  const uniN = window._scanUniverseCount;
-  const candN = Object.keys(s.candidates || {}).length;
+  const uniN = Object.keys(s.scan_universe || {}).length;
+  const qualN = watchItems.filter(w => w.qualified).length;
   document.getElementById('risk-pill').textContent =
-    `${s.market_session || '—'} · Scan: ${uniN} · Watching: ${(s.watching || []).length} · Qualified: ${candN}` +
+    `${s.market_session || '—'} · List: ${uniN} · Ready: ${qualN} · Charts: ${(s.watching || []).length}` +
     ` · Trades: ${s.trades_today} · P&L: $${s.realized_pnl_today}` +
     (s.can_trade ? '' : ` · BLOCKED: ${s.blocked_reason}`);
-  watching = s.watching;
-  if (!activeSymbol && watching.length) { activeSymbol = watching[0]; refreshChart(); }
-  renderTabs();
 }
 
 function signalCard(s) {
@@ -184,8 +261,12 @@ async function toggleAuto() {
   refreshStatus();
 }
 
-function refreshAll() {
-  refreshStatus(); refreshSignals(); refreshTrades(); refreshPnl();
+async function refreshAll() {
+  await refreshWatchlist();
+  refreshStatus();
+  refreshSignals();
+  refreshTrades();
+  refreshPnl();
 }
 
 initChart();

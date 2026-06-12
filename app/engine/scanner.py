@@ -10,7 +10,8 @@ import logging
 
 from app.config import settings
 from app.data.scan_data import DailyScanData
-from app.models import Candidate
+from app.engine.scoring import criteria_score
+from app.models import Candidate, WatchItem
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +50,47 @@ class Scanner:
 
     async def snapshot(self, symbol: str, catalyst: str) -> Candidate | None:
         """Build candidate metadata without gap/rvol filters (for chart watching)."""
-        return await self._evaluate(symbol, catalyst, require_filters=False)
+        return await self._evaluate(symbol, catalyst, require_filters=False, with_news=False)
 
-    async def _evaluate(self, symbol: str, catalyst: str, *, require_filters: bool) -> Candidate | None:
+    async def watch_entry(self, symbol: str, catalyst: str, *, with_news: bool = False) -> WatchItem:
+        """Scored row for the dashboard watchlist."""
+        sym = symbol.upper()
+        quote = await self.scan_data.quote(sym)
+        if not quote:
+            return WatchItem(symbol=sym, catalyst=catalyst)
+
+        price = float(quote.get("price") or 0)
+        prior_close = float(quote.get("previousClose") or 0)
+        avg_vol = float(quote.get("avgVolume") or 0)
+        volume = float(quote.get("volume") or 0)
+        gap_pct = (price - prior_close) / prior_close * 100 if prior_close else 0.0
+        rvol = volume / avg_vol if avg_vol else 0.0
+        score, qualified, checks = criteria_score(gap_pct, rvol, price, catalyst)
+
+        earnings = await self.scan_data.earnings_for(sym, catalyst) if with_news else None
+        headlines = await self.scan_data.headlines(sym) if with_news else []
+
+        return WatchItem(
+            symbol=sym,
+            catalyst=catalyst,
+            price=round(price, 2),
+            gap_pct=round(gap_pct, 2),
+            relative_volume=round(rvol, 2),
+            score=score,
+            qualified=qualified,
+            checks=checks,
+            earnings=earnings,
+            headlines=headlines,
+        )
+
+    async def _evaluate(
+        self,
+        symbol: str,
+        catalyst: str,
+        *,
+        require_filters: bool,
+        with_news: bool = True,
+    ) -> Candidate | None:
         quote = await self.scan_data.quote(symbol)
         if not quote:
             return None
@@ -61,18 +100,19 @@ class Scanner:
         avg_vol = quote.get("avgVolume") or 0
         volume = quote.get("volume") or 0
 
-        if price < settings.min_price or prior_close <= 0:
+        if prior_close <= 0:
             return None
 
         gap_pct = (price - prior_close) / prior_close * 100
         rvol = volume / avg_vol if avg_vol else 0.0
 
-        if require_filters and catalyst in ("earnings", "mover"):
-            if abs(gap_pct) < settings.min_gap_pct or rvol < settings.min_relative_volume:
+        if require_filters:
+            _, qualified, _ = criteria_score(gap_pct, rvol, price, catalyst)
+            if not qualified:
                 return None
 
-        earnings = await self.scan_data.earnings_for(symbol, catalyst)
-        headlines = await self.scan_data.headlines(symbol)
+        earnings = await self.scan_data.earnings_for(symbol, catalyst) if with_news else None
+        headlines = await self.scan_data.headlines(symbol) if with_news else []
 
         return Candidate(
             symbol=symbol,
