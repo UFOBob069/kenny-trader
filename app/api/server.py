@@ -107,6 +107,7 @@ def status():
         "market_session": market_session(),
         "extended_hours": is_extended_hours(),
         "watching": sorted(orch.detectors.keys()),
+        "scan_universe": orch.scan_universe,
         "candidates": {s: c.model_dump() for s, c in orch.candidates.items()},
         "auto_trade_enabled": orch.rules.auto_trade_enabled,
         "trades_today": orch.risk.trades_today,

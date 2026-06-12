@@ -56,7 +56,12 @@ function renderTabs() {
     b.onclick = () => { activeSymbol = s; renderTabs(); refreshChart(); };
     wrap.appendChild(b);
   }
-  if (!watching.length) wrap.innerHTML = '<span class="empty">No symbols being watched yet — waiting on scanner.</span>';
+  if (!watching.length) {
+    const n = window._scanUniverseCount || 0;
+    wrap.innerHTML = n
+      ? `<span class="empty">${n} symbols in today scan — charts load after the next scan cycle.</span>`
+      : '<span class="empty">No symbols in today scan yet — confirm FINNHUB_API_KEY is set. Overnight (market closed) is normal.</span>';
+  }
 }
 
 async function refreshStatus() {
@@ -71,8 +76,13 @@ async function refreshStatus() {
   const toggle = document.getElementById('auto-toggle');
   toggle.textContent = s.auto_trade_enabled ? 'Disable Auto-Trade' : 'Enable Auto-Trade';
   toggle.className = s.auto_trade_enabled ? 'on' : 'off';
+  const uni = s.scan_universe || {};
+  window._scanUniverseCount = Object.keys(uni).length;
+  const uniN = window._scanUniverseCount;
+  const candN = Object.keys(s.candidates || {}).length;
   document.getElementById('risk-pill').textContent =
-    `${s.market_session || '—'} · Trades today: ${s.trades_today} · Realized: $${s.realized_pnl_today}` +
+    `${s.market_session || '—'} · Scan: ${uniN} · Watching: ${(s.watching || []).length} · Qualified: ${candN}` +
+    ` · Trades: ${s.trades_today} · P&L: $${s.realized_pnl_today}` +
     (s.can_trade ? '' : ` · BLOCKED: ${s.blocked_reason}`);
   watching = s.watching;
   if (!activeSymbol && watching.length) { activeSymbol = watching[0]; refreshChart(); }

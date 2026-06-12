@@ -45,6 +45,7 @@ class Orchestrator:
 
         self.detectors: dict[str, SetupDetector] = {}
         self.candidates: dict[str, Candidate] = {}
+        self.scan_universe: dict[str, str] = {}
         self._bar_counts: dict[str, int] = {}
         self._tasks: list[asyncio.Task] = []
         self.connected = False
@@ -74,11 +75,27 @@ class Orchestrator:
     async def _scan_loop(self) -> None:
         while True:
             try:
-                cands = await self.scanner.scan()
-                for cand in cands[:MAX_ACTIVE_SYMBOLS]:
+                self.scan_universe = await self.scanner.universe()
+                watchlist = self.scanner.rank_universe(self.scan_universe)[:MAX_ACTIVE_SYMBOLS]
+
+                for sym in watchlist:
+                    catalyst = self.scan_universe.get(sym, "news")
+                    snap = await self.scanner.snapshot(sym, catalyst)
+                    if snap:
+                        self.candidates[sym] = snap
+                    if sym not in self.detectors and self.connected:
+                        await self._init_detector(sym)
+
+                filtered = await self.scanner.scan()
+                for cand in filtered:
                     self.candidates[cand.symbol] = cand
-                    if cand.symbol not in self.detectors and self.connected:
-                        await self._init_detector(cand.symbol)
+
+                log.info(
+                    "Scan complete — universe: %d, watching: %d, filtered: %d",
+                    len(self.scan_universe),
+                    len(self.detectors),
+                    len(filtered),
+                )
             except Exception:
                 log.exception("Scan loop error")
             await asyncio.sleep(SCAN_INTERVAL)

@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime, timezone
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.data.market_hours import is_extended_hours, market_session
+from app.data.market_hours import is_extended_hours, market_session, trading_date
 
 ET = ZoneInfo("America/New_York")
 
@@ -27,3 +28,11 @@ def test_post_market():
 
 def test_closed_weekend():
     assert market_session(_et(2026, 6, 13, 10, 0)) == "closed"
+
+
+def test_trading_date_uses_et():
+    # 02:00 UTC on Friday is still Thursday evening in New York
+    fixed = datetime(2026, 6, 12, 2, 0, tzinfo=timezone.utc)
+    with patch("app.data.market_hours.datetime") as m:
+        m.now.side_effect = lambda tz=None: fixed.astimezone(tz) if tz else fixed
+        assert trading_date() == date(2026, 6, 11)

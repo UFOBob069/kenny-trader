@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import timedelta
 
 import httpx
 
 from app.config import settings
+from app.data.market_hours import ET, trading_date
 
 log = logging.getLogger(__name__)
 BASE = "https://finnhub.io/api/v1"
@@ -42,8 +43,11 @@ class FinnhubClient:
             return {}
 
     async def earnings_today(self) -> list[dict]:
-        """US symbols reporting earnings today."""
-        today = date.today().isoformat()
+        """US symbols reporting earnings on today's US market date (ET)."""
+        if not settings.finnhub_api_key:
+            log.warning("FINNHUB_API_KEY not set — earnings calendar will be empty")
+            return []
+        today = trading_date().isoformat()
         data = await self._get("/calendar/earnings", **{"from": today, "to": today})
         rows = data.get("earningsCalendar", []) if isinstance(data, dict) else []
         return [r for r in rows if r.get("symbol") and "." not in r["symbol"]]
@@ -56,7 +60,9 @@ class FinnhubClient:
         return normalize_earnings(rows[0])
 
     async def company_news(self, symbol: str, days: int = 7) -> list[str]:
-        end = date.today()
+        from datetime import datetime
+
+        end = datetime.now(ET).date()
         start = end - timedelta(days=days)
         rows = await self._get(
             "/company-news",

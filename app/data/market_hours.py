@@ -1,10 +1,15 @@
 """US equity session helpers (Eastern Time)."""
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
+
+
+def trading_date() -> date:
+    """US market calendar date (Eastern Time)."""
+    return datetime.now(ET).date()
 
 PRE_OPEN = time(4, 0)
 RTH_OPEN = time(9, 30)
