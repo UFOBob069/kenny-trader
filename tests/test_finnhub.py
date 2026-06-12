@@ -20,6 +20,16 @@ def test_market_cap_from_profile_millions():
     assert market_cap_from_profile({}) is None
 
 
+def test_market_cap_from_shares_and_price():
+    profile = {"ticker": "SPCL", "shareOutstanding": 10.0}  # 10M shares
+    assert market_cap_from_profile(profile, price=50.0) == 500_000_000
+
+
+def test_market_cap_profile_uses_ticker_field():
+    profile = {"ticker": "AAPL", "marketCapitalization": 3000.0}
+    assert market_cap_from_profile(profile) == 3_000_000_000
+
+
 def test_normalize_earnings_history_row():
     row = {"actual": 2.1, "estimate": 2.0, "revenue": None, "revenueEstimate": None}
     out = normalize_earnings(row)

@@ -13,12 +13,15 @@ log = logging.getLogger(__name__)
 BASE = "https://finnhub.io/api/v1"
 
 
-def market_cap_from_profile(profile: dict) -> float | None:
-    """Finnhub profile2 returns marketCapitalization in millions USD."""
+def market_cap_from_profile(profile: dict, price: float | None = None) -> float | None:
+    """Finnhub profile2: marketCapitalization and shareOutstanding are in millions."""
     mcap = profile.get("marketCapitalization")
-    if mcap is None:
-        return None
-    return float(mcap) * 1_000_000
+    if mcap is not None:
+        return float(mcap) * 1_000_000
+    shares_m = profile.get("shareOutstanding")
+    if shares_m is not None and price and price > 0:
+        return float(shares_m) * 1_000_000 * price
+    return None
 
 
 def normalize_earnings(row: dict) -> dict:
@@ -67,13 +70,16 @@ class FinnhubClient:
             return None
         return normalize_earnings(rows[0])
 
-    async def market_cap_usd(self, symbol: str) -> float | None:
+    async def market_cap_usd(self, symbol: str, price: float | None = None) -> float | None:
         if not settings.finnhub_api_key:
             return None
         data = await self._get("/stock/profile2", symbol=symbol.upper())
-        if not isinstance(data, dict) or not data.get("symbol"):
+        if not isinstance(data, dict) or not data:
             return None
-        return market_cap_from_profile(data)
+        # profile2 uses "ticker", not "symbol"
+        if not (data.get("ticker") or data.get("symbol") or data.get("marketCapitalization")):
+            return None
+        return market_cap_from_profile(data, price=price)
 
     async def company_news(self, symbol: str, days: int = 7) -> list[str]:
         from datetime import datetime

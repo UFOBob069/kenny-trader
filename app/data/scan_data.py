@@ -49,10 +49,14 @@ class DailyScanData:
             return None
         return await self.alpaca.quote_snapshot(symbol)
 
-    async def market_cap(self, symbol: str) -> float | None:
+    async def market_cap(self, symbol: str, price: float | None = None) -> float | None:
         sym = symbol.upper()
         if sym not in self._cap_cache:
-            self._cap_cache[sym] = await self.finnhub.market_cap_usd(sym)
+            px = price
+            if px is None and self.alpaca:
+                quote = await self.alpaca.quote_snapshot(sym)
+                px = float(quote["price"]) if quote and quote.get("price") else None
+            self._cap_cache[sym] = await self.finnhub.market_cap_usd(sym, price=px)
         return self._cap_cache[sym]
 
     async def filter_by_market_cap(self, symbols: dict[str, str], floor_usd: float) -> dict[str, str]:
