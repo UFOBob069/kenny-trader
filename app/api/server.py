@@ -145,9 +145,21 @@ def chart(symbol: str):
 
 # --- web UI -------------------------------------------------------------- #
 
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+
+
 @app.get("/")
 def index():
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=_NO_CACHE)
+
+
+@app.get("/static/app.js")
+def app_js():
+    return FileResponse(
+        WEB_DIR / "app.js",
+        media_type="application/javascript",
+        headers=_NO_CACHE,
+    )
 
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
