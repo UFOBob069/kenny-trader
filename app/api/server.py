@@ -56,6 +56,11 @@ async def orders():
     return {"open": await orch.open_orders()}
 
 
+@app.get("/api/account")
+async def account():
+    return await orch.account_info()
+
+
 @app.get("/api/trades")
 def trades():
     open_trades = orch.store.open_trades()
@@ -151,14 +156,14 @@ async def get_watch_detail(symbol: str):
 # --- chart ------------------------------------------------------------------ #
 
 @app.get("/api/chart/{symbol}")
-async def chart(symbol: str):
+async def chart(symbol: str, signal_id: str | None = None):
     sym = symbol.upper()
     if sym not in orch.scan_universe:
         return JSONResponse({"error": f"{sym} not in today's scan"}, status_code=404)
     if sym not in orch.detectors:
         orch.schedule_chart_init(sym)
         return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
-    payload = orch.chart(sym)
+    payload = orch.chart(sym, signal_id=signal_id)
     if payload is None:
         return JSONResponse({"error": f"chart not ready for {symbol}"}, status_code=404)
     return payload

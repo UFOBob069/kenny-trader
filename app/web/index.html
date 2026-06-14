@@ -2,203 +2,222 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>VWAP Copilot</title>
+<title>Kenny VWAP Trader</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
     --bg: #131722; --panel: #1c2230; --border: #2a3142; --text: #d6dbe6;
     --muted: #7c8597; --green: #26a69a; --red: #ef5350; --blue: #2bc4e2;
-    --yellow: #e6c300; --accent: #3d6df2;
+    --yellow: #e6c300; --accent: #2962ff;
   }
   * { box-sizing: border-box; margin: 0; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.45 'Segoe UI', system-ui, sans-serif; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 18px;
-           border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 16px; font-weight: 600; }
-  .pill { padding: 3px 10px; border-radius: 12px; font-size: 12px; background: var(--panel); }
-  .pill.on  { color: var(--green); }
-  .pill.off { color: var(--red); }
+  html, body { height: 100%; overflow: hidden; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.4 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; }
 
-  .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 12px;
-                padding: 6px 0 4px; }
-  .toggle-hint { font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 4px; }
-  .switch { width: 44px; height: 24px; border: 0; border-radius: 12px; padding: 0; cursor: pointer;
-            background: #3a4254; position: relative; flex-shrink: 0; transition: background .2s; }
-  .switch.on { background: var(--green); }
-  .switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
-                  background: #fff; transition: transform .2s; }
-  .switch.on .knob { transform: translateX(20px); }
-  .cap-select { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-wrap: wrap; }
-  .cap-select .lbl { font-size: 11px; color: var(--muted); margin-right: 4px; text-transform: uppercase;
-                     letter-spacing: .04em; }
+  /* Command bar */
+  .command-bar { height: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 14px;
+                 padding: 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .command-bar .brand { font-weight: 700; font-size: 14px; letter-spacing: .02em; }
+  .cmd-metric { display: flex; flex-direction: column; line-height: 1.15; }
+  .cmd-metric .lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .cmd-metric .val { font-weight: 600; font-size: 13px; }
+  .cmd-metric .val.pos { color: var(--green); }
+  .cmd-metric .val.neg { color: var(--red); }
+  .cmd-sep { width: 1px; height: 24px; background: var(--border); }
+  .pill { padding: 2px 8px; border-radius: 10px; font-size: 11px; background: var(--panel); white-space: nowrap; }
+  .pill.on { color: var(--green); }
+  .pill.off { color: var(--red); }
+  .cap-select { display: flex; align-items: center; gap: 3px; margin-left: auto; }
+  .cap-select .lbl { font-size: 9px; color: var(--muted); margin-right: 4px; text-transform: uppercase; }
   .cap-select button { background: var(--bg); border: 1px solid var(--border); color: var(--muted);
-                      padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+                        padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
   .cap-select button.active { border-color: var(--blue); color: var(--blue); font-weight: 600; }
-  .signal .sym-link { cursor: pointer; color: var(--blue); }
-  .signal .sym-link:hover { text-decoration: underline; }
-  .auto-hint { font-size: 11px; color: var(--yellow); margin-top: 4px; }
-  #chart-loading { position: absolute; inset: 0; display: none; align-items: center;
-                   justify-content: center; background: rgba(19,23,34,.75); color: var(--muted);
-                   font-size: 13px; z-index: 2; }
-  #chart-wrap { position: relative; }
-  #toast { position: fixed; bottom: 18px; right: 18px; max-width: 420px; padding: 10px 14px;
-           border-radius: 8px; font-size: 13px; background: var(--panel); border: 1px solid var(--border);
-           box-shadow: 0 8px 24px rgba(0,0,0,.35); opacity: 0; pointer-events: none; transition: opacity .2s;
-           z-index: 99; }
+  .switch { width: 40px; height: 22px; border: 0; border-radius: 11px; padding: 0; cursor: pointer;
+            background: #3a4254; position: relative; flex-shrink: 0; }
+  .switch.on { background: var(--green); }
+  .switch .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch.on .knob { transform: translateX(18px); }
+
+  /* Workspace grid */
+  .workspace { flex: 1; min-height: 0; display: grid;
+               grid-template-columns: minmax(160px, 13%) 1fr minmax(300px, 24%);
+               gap: 6px; padding: 6px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+           display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel-hd { padding: 8px 10px 6px; font-size: 10px; text-transform: uppercase;
+              letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--border);
+              flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+  .panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+  /* Scanner rail */
+  .scan-row { display: grid; grid-template-columns: 1fr 36px 52px; gap: 4px; align-items: center;
+              padding: 5px 8px; cursor: pointer; border-left: 3px solid transparent; font-size: 12px; }
+  .scan-row:hover { background: rgba(255,255,255,.03); }
+  .scan-row.active { background: rgba(43,196,226,.08); border-left-color: var(--blue); }
+  .scan-row.ready { border-left-color: var(--green); }
+  .scan-row .sym { font-weight: 600; }
+  .scan-row .sc { color: var(--blue); font-weight: 600; text-align: right; }
+  .scan-row.ready .sc { color: var(--green); }
+  .scan-bar { height: 3px; background: #2a3142; border-radius: 2px; margin-top: 2px; grid-column: 1 / -1; }
+  .scan-bar-fill { height: 100%; background: var(--green); border-radius: 2px; }
+  .badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; text-align: center; }
+  .badge.ok { background: rgba(38,166,154,.2); color: var(--green); }
+  .badge.no { background: rgba(126,133,151,.12); color: var(--muted); }
+
+  /* Chart theater */
+  .center-col { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .chart-theater { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+  .chart-hd { padding: 6px 10px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+              border-bottom: 1px solid var(--border); font-size: 12px; }
+  .chart-hd .sym { font-weight: 700; font-size: 15px; color: var(--blue); }
+  .chart-legend { display: flex; gap: 12px; margin-left: auto; font-size: 10px; color: var(--muted); }
+  .chart-legend span::before { content: ''; display: inline-block; width: 10px; height: 2px;
+                               margin-right: 4px; vertical-align: middle; }
+  .leg-vwap::before { background: var(--blue); }
+  .leg-pdv::before { background: var(--yellow); }
+  .leg-entry::before { background: var(--green); }
+  .leg-stop::before { background: var(--red); }
+  .leg-target::before { background: var(--green); opacity: .5; }
+  #chart { flex: 1; min-height: 0; }
+  #chart-loading { position: absolute; inset: 0; top: 36px; display: none; align-items: center;
+                   justify-content: center; background: rgba(19,23,34,.8); color: var(--muted); z-index: 2; }
+
+  /* Order chips + positions */
+  .order-chips { display: flex; gap: 6px; padding: 6px 8px; flex-wrap: wrap; min-height: 32px;
+                 border-top: 1px solid var(--border); flex-shrink: 0; }
+  .order-chip { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--bg);
+                border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .position-strip { height: 130px; flex-shrink: 0; border-top: 1px solid var(--border); }
+  .position-scroll { display: flex; gap: 8px; padding: 8px; overflow-x: auto; height: 100%; align-items: stretch; }
+  .trade-card { min-width: 220px; background: var(--bg); border: 1px solid var(--border);
+                border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+  .trade-card .head { display: flex; justify-content: space-between; font-weight: 600; }
+  .trade-card .pnl.pos { color: var(--green); }
+  .trade-card .pnl.neg { color: var(--red); }
+  .prog-bar { height: 4px; background: #2a3142; border-radius: 2px; overflow: hidden; margin: 4px 0; }
+  .prog-fill { height: 100%; background: var(--green); border-radius: 2px; }
+  .trade-meta { font-size: 11px; color: var(--muted); }
+  .closebtn { align-self: flex-start; margin-top: auto; background: transparent; border: 1px solid var(--border);
+              color: var(--red); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; }
+
+  /* Action rail */
+  .action-rail { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .opportunities { flex: 1.2; min-height: 0; }
+  .context-drawer { flex: 0.8; min-height: 0; }
+  .drawer-tabs { display: flex; gap: 4px; padding: 6px 8px 0; flex-shrink: 0; }
+  .drawer-tabs button { flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+                        padding: 4px 0; border-radius: 4px 4px 0 0; cursor: pointer; font-size: 11px; }
+  .drawer-tabs button.active { color: var(--blue); border-bottom-color: var(--panel); background: var(--panel); }
+  .drawer-pane { display: none; padding: 8px 10px; overflow-y: auto; flex: 1; min-height: 0; }
+  .drawer-pane.active { display: block; }
+
+  /* Signal / opportunity cards */
+  .opp { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 0 8px 8px;
+         background: var(--bg); cursor: pointer; }
+  .opp:hover { border-color: var(--blue); }
+  .opp.selected { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+  .opp .head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 4px; }
+  .opp .conf { color: var(--blue); font-size: 15px; }
+  .opp .levels { display: flex; gap: 10px; font-size: 11px; color: var(--muted); margin: 4px 0; }
+  .opp .rr { font-size: 11px; color: var(--yellow); }
+  .opp .actions { display: flex; gap: 6px; margin-top: 6px; }
+  .opp .actions button { flex: 1; padding: 5px 0; border: 0; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 12px; }
+  .buy { background: var(--green); color: #fff; }
+  .short { background: var(--red); color: #fff; }
+  .ign { background: transparent; color: var(--muted); border: 1px solid var(--border) !important; }
+  .auto-hint { font-size: 10px; color: var(--yellow); margin-top: 4px; }
+
+  .bd-block { margin: 6px 0; padding: 6px; background: var(--bg); border-radius: 4px; }
+  .bd-row { display: grid; grid-template-columns: 64px 1fr 44px; gap: 4px; align-items: center; font-size: 11px; margin: 3px 0; }
+  .bd-bar { height: 4px; background: #2a3142; border-radius: 2px; overflow: hidden; }
+  .bd-fill { height: 100%; background: var(--blue); }
+  .bd-fill.scan { background: var(--green); }
+  .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12px; }
+  .settings-row input { width: 72px; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+                        border-radius: 4px; padding: 2px 6px; }
+  .empty { color: var(--muted); font-size: 12px; padding: 8px; }
+  .checkline { font-size: 11.5px; padding: 2px 0; color: var(--muted); }
+  .checkline.ok { color: var(--green); }
+  .checkline.no { color: var(--red); }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+  .detail-cell { background: var(--bg); border-radius: 4px; padding: 6px; }
+  .detail-cell .lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+  .detail-cell .val { font-weight: 600; margin-top: 2px; }
+
+  #toast { position: fixed; bottom: 14px; right: 14px; max-width: 380px; padding: 10px 14px;
+           border-radius: 6px; font-size: 13px; background: var(--panel); border: 1px solid var(--border);
+           opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 99; }
   #toast.show { opacity: 1; pointer-events: auto; }
   #toast.ok { border-color: var(--green); color: var(--green); }
   #toast.err { border-color: var(--red); color: var(--red); }
-  main { display: grid; grid-template-columns: 1fr 380px; gap: 12px; padding: 12px 18px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
-  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
-              color: var(--muted); margin-bottom: 8px; }
-  #chart-wrap { grid-column: 1; }
-  #chart { height: 460px; }
-  aside { display: flex; flex-direction: column; gap: 12px; }
-  .signal { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; }
-  .signal .head { display: flex; justify-content: space-between; font-weight: 600; }
-  .signal .conf { color: var(--blue); text-align: right; }
-  .signal .conf-lbl { display: block; font-size: 10px; color: var(--muted); font-weight: 500;
-                      text-transform: uppercase; letter-spacing: .04em; }
-  .signal .levels { display: flex; gap: 14px; color: var(--muted); font-size: 12.5px; margin: 4px 0; }
-  .signal .reasons { font-size: 12px; color: var(--muted); }
-  .panel-sub { font-size: 11.5px; color: var(--muted); font-weight: 400; text-transform: none;
-               letter-spacing: 0; margin: -4px 0 8px; line-height: 1.35; }
-  .bd-block { margin: 8px 0 6px; padding: 8px; background: var(--bg); border-radius: 6px; }
-  .bd-title { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
-              margin-bottom: 6px; }
-  .bd-row { display: grid; grid-template-columns: 72px 1fr 52px; gap: 6px; align-items: center;
-            font-size: 11.5px; margin: 4px 0; }
-  .bd-lbl { color: var(--muted); }
-  .bd-wt { color: var(--blue); font-size: 10px; }
-  .bd-bar { height: 5px; background: #2a3142; border-radius: 3px; overflow: hidden; }
-  .bd-fill { height: 100%; background: var(--blue); border-radius: 3px; }
-  .bd-fill.scan { background: var(--green); }
-  .bd-val { text-align: right; font-weight: 600; color: var(--text); }
-  .bd-contrib { font-weight: 400; color: var(--muted); font-size: 10px; }
-  .bd-total { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;
-              margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
-  .signal .actions { display: flex; gap: 8px; margin-top: 8px; }
-  .signal .actions button { flex: 1; padding: 6px 0; border: 0; border-radius: 6px;
-                            cursor: pointer; font-weight: 600; }
-  .buy { background: var(--green); color: #fff; }
-  .ign { background: var(--bg); color: var(--muted); border: 1px solid var(--border) !important; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
-  td { padding: 5px 6px; border-top: 1px solid var(--border); }
-  td.pos { color: var(--green); } td.neg { color: var(--red); }
-  .pnl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .pnl-cell { background: var(--bg); border-radius: 6px; padding: 8px; text-align: center; }
-  .pnl-cell .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-  .pnl-cell .value { font-size: 17px; font-weight: 600; }
-  .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }
-  .settings-row input { width: 80px; background: var(--bg); color: var(--text);
-                        border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
-  .closebtn { background: var(--bg); border: 1px solid var(--border); color: var(--red);
-              border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
-  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
-  .watch-scroll { max-height: 240px; overflow-y: auto; }
-  #watchlist tbody tr { cursor: pointer; }
-  #watchlist tbody tr:hover { background: rgba(255,255,255,0.03); }
-  #watchlist tbody tr.active { background: rgba(43, 196, 226, 0.1); }
-  #watchlist td.scan-score { color: var(--blue); font-weight: 600; }
-  #watchlist tr.qualified td.scan-score { color: var(--green); }
-  .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
-  .badge.ok { background: rgba(38,166,154,.2); color: var(--green); }
-  .badge.no { background: rgba(126,133,151,.15); color: var(--muted); }
-  .detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-  .detail-head .sym { font-size: 20px; font-weight: 600; }
-  .detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-  .detail-cell { background: var(--bg); border-radius: 6px; padding: 8px; }
-  .detail-cell .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
-  .detail-cell .val { font-size: 15px; font-weight: 600; margin-top: 2px; }
-  .checkline { font-size: 12.5px; padding: 3px 0; color: var(--muted); }
-  .checkline.ok { color: var(--green); }
-  .checkline.no { color: var(--red); }
-  .headlines { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
-  .headlines li { margin: 4px 0 4px 16px; }
 </style>
 </head>
 <body>
-<header>
-  <h1>VWAP Event Trading Copilot</h1>
-  <span id="broker-pill" class="pill off">Broker …</span>
-  <span id="auto-pill" class="pill off">AUTO …</span>
-  <span id="risk-pill" class="pill">—</span>
-  <div id="cap-select" class="cap-select" aria-label="Minimum market cap filter"></div>
+
+<header class="command-bar">
+  <span class="brand">Kenny</span>
+  <div class="cmd-metric"><span class="lbl">Today</span><span class="val" id="cmd-pnl">—</span></div>
+  <div class="cmd-metric"><span class="lbl">Week</span><span class="val" id="cmd-week">—</span></div>
+  <div class="cmd-metric"><span class="lbl">Win %</span><span class="val" id="cmd-win">—</span></div>
+  <div class="cmd-metric"><span class="lbl">Trades</span><span class="val" id="cmd-trades">—</span></div>
+  <div class="cmd-metric"><span class="lbl">PF</span><span class="val" id="cmd-pf">—</span></div>
+  <div class="cmd-metric"><span class="lbl">Open Risk</span><span class="val" id="cmd-risk">—</span></div>
+  <div class="cmd-sep"></div>
+  <div class="cmd-metric"><span class="lbl">Buying Power</span><span class="val" id="cmd-bp">—</span></div>
+  <span id="broker-pill" class="pill off">—</span>
+  <span id="market-pill" class="pill">—</span>
+  <button type="button" id="auto-switch" class="switch" role="switch" aria-checked="false" onclick="toggleAuto()" title="Auto-trade"><span class="knob"></span></button>
+  <span id="auto-pill" class="pill off">AUTO</span>
+  <div id="cap-select" class="cap-select"></div>
 </header>
-<main>
-  <div>
-    <div class="panel">
-      <h2>Today's Watchlist <span style="color:var(--muted);font-weight:400;text-transform:none">— earnings + movers</span></h2>
-      <p class="panel-sub">Scan score ranks candidates (gap 40% · rvol 40% · price 20%). 100 = passes all filters.</p>
-      <div class="watch-scroll">
-        <table id="watchlist">
-          <thead><tr><th>Symbol</th><th>Type</th><th>Mkt Cap</th><th>Price</th><th>Gap</th><th>RVol</th><th title="Gap 40% + RVol 40% + Price 20%">Scan</th><th>Status</th></tr></thead>
-          <tbody></tbody>
-        </table>
+
+<main class="workspace">
+  <aside class="panel scanner-rail">
+    <div class="panel-hd">Scanner <span id="scan-count">—</span></div>
+    <div class="panel-body" id="scanner-list"></div>
+  </aside>
+
+  <section class="center-col">
+    <div class="panel chart-theater">
+      <div class="chart-hd">
+        <span class="sym" id="chart-symbol">—</span>
+        <span id="chart-setup" style="color:var(--muted);font-size:11px"></span>
+        <div class="chart-legend">
+          <span class="leg-vwap">VWAP</span>
+          <span class="leg-pdv">PD-VWAP</span>
+          <span class="leg-entry">Entry</span>
+          <span class="leg-stop">Stop</span>
+          <span class="leg-target">Target</span>
+        </div>
       </div>
-      <div id="watch-empty" class="empty">Waiting for scan…</div>
-    </div>
-    <div class="panel" id="chart-wrap" style="margin-top:12px">
-      <h2>Kenny Chart — <span id="chart-symbol" style="color:var(--blue)">—</span>
-        <span style="color:var(--muted);font-weight:400"> · </span>
-        <span style="color:var(--blue)">VWAP</span> / <span style="color:var(--yellow)">Prior-Day VWAP</span></h2>
       <div id="chart-loading">Loading chart…</div>
       <div id="chart"></div>
+      <div class="order-chips" id="order-chips"></div>
     </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Symbol Detail</h2>
-      <div id="detail-body" class="empty">Select a symbol from the watchlist.</div>
+    <div class="panel position-strip">
+      <div class="panel-hd">Positions</div>
+      <div class="position-scroll" id="positions"></div>
     </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Pending Orders <span style="color:var(--muted);font-weight:400;text-transform:none">— Alpaca</span></h2>
-      <table id="pending-orders">
-        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="orders-empty" class="empty">No open orders at broker.</div>
+  </section>
+
+  <aside class="action-rail">
+    <div class="panel opportunities">
+      <div class="panel-hd">Best Opportunities</div>
+      <div class="panel-body" id="pending"></div>
     </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Open Trades</h2>
-      <table id="open-trades">
-        <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Current</th><th>P&amp;L</th><th>Conf</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div id="open-empty" class="empty">No open trades.</div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>P&amp;L</h2>
-      <div class="pnl-grid" id="pnl-grid"></div>
-      <table id="pnl-metrics" style="margin-top:10px">
-        <thead><tr><th></th><th>Trades</th><th>Win rate</th><th>Avg win</th><th>Avg loss</th><th>Profit factor</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-  <aside>
-    <div class="panel">
-      <h2>Pending Signals</h2>
-      <p class="panel-sub">Trade confidence = technical 45% · fundamental 25% · AI 30%. Used for auto-trade.</p>
-      <div id="pending"></div>
-    </div>
-    <div class="panel">
-      <h2>Automation</h2>
-      <div class="toggle-row">
-        <span>Auto-trade signals</span>
-        <button type="button" id="auto-switch" class="switch" role="switch"
-          aria-checked="false" onclick="toggleAuto()"><span class="knob"></span></button>
+    <div class="panel context-drawer">
+      <div class="drawer-tabs">
+        <button type="button" class="active" onclick="showTab('scan')">Scan</button>
+        <button type="button" onclick="showTab('rules')">Rules</button>
       </div>
-      <div class="toggle-hint">When on, places orders automatically for signals at or above the confidence threshold in Rules.</div>
-    </div>
-    <div class="panel">
-      <h2>Rules</h2>
-      <div id="settings"></div>
+      <div id="tab-scan" class="drawer-pane active"><div id="detail-body" class="empty">Select a symbol.</div></div>
+      <div id="tab-rules" class="drawer-pane"><div id="settings"></div></div>
     </div>
   </aside>
 </main>
+
 <div id="toast"></div>
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

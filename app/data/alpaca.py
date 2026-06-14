@@ -67,6 +67,7 @@ class AlpacaClient:
         self._trading: TradingClient | None = None
         self._data: StockHistoricalDataClient | None = None
         self._screener: ScreenerClient | None = None
+        self._account_cache: dict = {}
         feed_name = settings.alpaca_data_feed.lower()
         self._feed = DataFeed.SIP if feed_name == "sip" else DataFeed.IEX
 
@@ -89,6 +90,27 @@ class AlpacaClient:
         account = await asyncio.to_thread(self._trading.get_account)
         mode = "paper" if settings.alpaca_paper else "live"
         log.info("Connected to Alpaca (%s) — equity $%s", mode, account.equity)
+        self._account_cache = {
+            "buying_power": float(account.buying_power),
+            "equity": float(account.equity),
+            "cash": float(account.cash),
+            "portfolio_value": float(account.portfolio_value),
+        }
+
+    async def account_summary(self) -> dict:
+        if not self._trading:
+            return {}
+        try:
+            acct = await asyncio.to_thread(self._trading.get_account)
+            return {
+                "buying_power": round(float(acct.buying_power), 2),
+                "equity": round(float(acct.equity), 2),
+                "cash": round(float(acct.cash), 2),
+                "portfolio_value": round(float(acct.portfolio_value), 2),
+            }
+        except Exception:
+            log.exception("Failed to fetch Alpaca account")
+            return getattr(self, "_account_cache", {})
 
     def disconnect(self) -> None:
         self._trading = None

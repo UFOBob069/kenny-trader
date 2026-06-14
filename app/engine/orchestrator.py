@@ -235,12 +235,50 @@ class Orchestrator:
             return await self.broker.list_open_orders()
         return []
 
-    async def close_trade(self, trade_id: str) -> dict:
-        trade = self.store.get_trade(trade_id)
-        if not trade:
-            return {"ok": False, "error": "trade not found"}
-        await self.trader.close(trade)
-        return {"ok": True, "realized_pnl": trade.realized_pnl}
+    async def account_info(self) -> dict:
+        if isinstance(self.broker, AlpacaClient):
+            return await self.broker.account_summary()
+        return {}
+
+    def chart(self, symbol: str, signal_id: str | None = None) -> dict | None:
+        sym = symbol.upper()
+        det = self.detectors.get(sym)
+        if not det:
+            return None
+        payload = det.chart_payload()
+        payload["markers"] = self._markers(sym)
+
+        last = det.bars[-1].close if det.bars else None
+        item = self.watchlist.get(sym)
+        if item and item.price:
+            last = item.price
+
+        sig = self.store.get_signal(signal_id) if signal_id else None
+        if not sig or sig.symbol.upper() != sym:
+            pending = [s for s in self.store.pending_signals() if s.symbol.upper() == sym]
+            sig = max(pending, key=lambda s: s.confidence) if pending else None
+
+        levels = None
+        setup_label = None
+        if sig:
+            levels = {
+                "entry": sig.entry,
+                "stop": sig.stop,
+                "target": sig.target,
+                "direction": sig.direction.value,
+            }
+            setup_label = sig.setup.value.replace("_", " ")
+            payload["signal"] = {
+                "id": sig.id,
+                "setup": setup_label,
+                "direction": sig.direction.value,
+                "confidence": sig.confidence,
+                "reward_risk": round(sig.reward_risk, 2),
+            }
+
+        payload["last_price"] = round(last, 2) if last else None
+        payload["levels"] = levels
+        return payload
 
     def schedule_chart_init(self, symbol: str) -> None:
         """Start chart/detector load in the background (non-blocking for HTTP)."""
@@ -289,13 +327,12 @@ class Orchestrator:
         self.watchlist[sym] = item
         return item
 
-    def chart(self, symbol: str) -> dict | None:
-        det = self.detectors.get(symbol.upper())
-        if not det:
-            return None
-        payload = det.chart_payload()
-        payload["markers"] = self._markers(symbol.upper())
-        return payload
+    async def close_trade(self, trade_id: str) -> dict:
+        trade = self.store.get_trade(trade_id)
+        if not trade:
+            return {"ok": False, "error": "trade not found"}
+        await self.trader.close(trade)
+        return {"ok": True, "realized_pnl": trade.realized_pnl}
 
     def _markers(self, symbol: str) -> list[dict]:
         markers = []

@@ -74,7 +74,23 @@ class MemoryStore:
                 "avg_loser": round(-gross_loss / len(losers), 2) if losers else 0.0,
                 "profit_factor": round(gross_win / gross_loss, 2) if gross_loss else None,
             }
+        out["dashboard"] = self._dashboard_stats(today_start)
         return out
+
+    def _dashboard_stats(self, today_start: datetime) -> dict:
+        today_closed = self.closed_trades(today_start)
+        pnls = [(t.symbol, t.realized_pnl or 0.0) for t in today_closed]
+        best = max(pnls, key=lambda x: x[1]) if pnls else None
+        worst = min(pnls, key=lambda x: x[1]) if pnls else None
+        open_risk = sum(abs(t.entry - t.stop) * t.quantity for t in self.open_trades())
+        week = self.closed_trades(datetime.now(timezone.utc) - timedelta(days=7))
+        week_pnls = [t.realized_pnl or 0.0 for t in week]
+        return {
+            "open_risk": round(open_risk, 2),
+            "best_trade": {"symbol": best[0], "pnl": round(best[1], 2)} if best else None,
+            "worst_trade": {"symbol": worst[0], "pnl": round(worst[1], 2)} if worst else None,
+            "week_pnl": round(sum(week_pnls), 2),
+        }
 
 
 class SupabaseStore(MemoryStore):
