@@ -7,6 +7,7 @@ let watchItems = [];
 let pendingSignals = [];
 let lastStatus = {};
 let lastPnl = {};
+let chartHasBars = false;
 let chartPollTimer = null;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -85,6 +86,7 @@ function addPriceLine(price, color, title, style) {
 }
 
 function renderChartData(d) {
+  chartHasBars = true;
   candleSeries.setData(d.bars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
   volumeSeries.setData(d.bars.map(b => ({ time: b.time, value: b.volume })));
   vwapSeries.setData(d.vwap || []);
@@ -112,13 +114,15 @@ function renderChartData(d) {
 async function refreshChart() {
   if (!activeSymbol) return;
   const loading = document.getElementById('chart-loading');
-  if (loading) loading.style.display = 'flex';
+  if (loading && !chartHasBars) loading.style.display = 'flex';
   const q = activeSignalId ? `?signal_id=${activeSignalId}` : '';
+  let delay = 250;
   try {
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       const d = await j(`/api/chart/${activeSymbol}${q}`);
       if (d.loading) {
-        await sleep(1500);
+        await sleep(delay);
+        delay = Math.min(delay * 1.4, 2000);
         continue;
       }
       if (d.error) {
@@ -130,7 +134,8 @@ async function refreshChart() {
         if (loading) loading.style.display = 'none';
         return;
       }
-      await sleep(1500);
+      await sleep(delay);
+      delay = Math.min(delay * 1.4, 2000);
     }
     if (loading) loading.textContent = 'Chart timed out';
   } catch (_) {
@@ -226,14 +231,18 @@ async function selectSymbol(sym, signalId) {
     activeSignalId = match?.id ?? null;
   }
   document.getElementById('chart-symbol').textContent = sym;
+  chartHasBars = false;
+  const loading = document.getElementById('chart-loading');
+  if (loading) {
+    loading.style.display = 'flex';
+    loading.textContent = 'Loading chart…';
+  }
   renderScanner();
   renderOpportunities();
-  try {
-    renderDetail(await j(`/api/watchlist/${sym}`));
-  } catch (_) {
-    renderDetail(null);
-  }
   refreshChart();
+  j(`/api/watchlist/${sym}`)
+    .then(d => renderDetail(d))
+    .catch(() => renderDetail(null));
 }
 window.selectSymbol = selectSymbol;
 

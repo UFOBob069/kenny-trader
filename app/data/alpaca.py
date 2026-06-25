@@ -138,7 +138,25 @@ class AlpacaClient:
         return [_to_bar(b) for b in raw]
 
     async def prior_session_bars(self, symbol: str) -> tuple[list[Bar], list[Bar]]:
-        bars = await self.minute_bars(symbol, days=2)
+        """Prior session + today, scoped to extended-hours window (4am–8pm ET)."""
+        if not self._data:
+            return [], []
+        now_et = datetime.now(ET)
+        start_et = (now_et - timedelta(days=3)).replace(hour=4, minute=0, second=0, microsecond=0)
+        request = StockBarsRequest(
+            symbol_or_symbols=symbol.upper(),
+            timeframe=TimeFrame.Minute,
+            start=start_et.astimezone(timezone.utc),
+            end=now_et.astimezone(timezone.utc),
+            feed=self._feed,
+        )
+        try:
+            response = await asyncio.to_thread(self._data.get_stock_bars, request)
+        except Exception:
+            log.exception("Alpaca bars request failed for %s", symbol)
+            return [], []
+        raw = response.data.get(symbol.upper(), [])
+        bars = [_to_bar(b) for b in raw]
         if not bars:
             return [], []
         last_day = bars[-1].ts.astimezone(ET).date()

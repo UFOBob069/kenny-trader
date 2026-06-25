@@ -49,6 +49,7 @@ class Orchestrator:
         self.watchlist: dict[str, WatchItem] = {}
         self._bar_counts: dict[str, int] = {}
         self._chart_init_tasks: dict[str, asyncio.Task] = {}
+        self._chart_init_sem = asyncio.Semaphore(4)
         self._tasks: list[asyncio.Task] = []
         self.connected = False
 
@@ -121,10 +122,21 @@ class Orchestrator:
             key=lambda w: w.score,
             reverse=True,
         )
-        for item in ranked[:MAX_ACTIVE_SYMBOLS]:
-            if item.symbol not in self.detectors and self.connected:
-                await self._init_detector(item.symbol)
-                item.watching = True
+        if self.connected:
+            to_init = [
+                item for item in ranked[:MAX_ACTIVE_SYMBOLS]
+                if item.symbol not in self.detectors
+            ]
+            if to_init:
+                results = await asyncio.gather(
+                    *(self._init_detector(item.symbol) for item in to_init),
+                    return_exceptions=True,
+                )
+                for item, result in zip(to_init, results):
+                    if isinstance(result, Exception):
+                        log.exception("Chart init failed for %s", item.symbol)
+                    else:
+                        item.watching = True
 
         filtered = await self.scanner.scan(self.scan_universe)
         self.candidates = {c.symbol: c for c in filtered}
@@ -137,7 +149,8 @@ class Orchestrator:
         )
 
     async def _init_detector(self, symbol: str) -> None:
-        prior, today = await self.broker.prior_session_bars(symbol)
+        async with self._chart_init_sem:
+            prior, today = await self.broker.prior_session_bars(symbol)
         det = SetupDetector(symbol, prior_day_bars=prior)
         cand = self.candidates.get(symbol)
         for bar in today:
@@ -319,11 +332,9 @@ class Orchestrator:
             return None
         catalyst = self.scan_universe.get(sym, "chart")
         item = await self.scanner.watch_entry(sym, catalyst, with_news=True)
-        if sym in self.detectors:
-            item.watching = True
-        elif self.connected and sym in self.scan_universe:
-            await self.ensure_chart(sym)
-            item.watching = sym in self.detectors
+        item.watching = sym in self.detectors
+        if sym not in self.detectors and self.connected:
+            self.schedule_chart_init(sym)
         self.watchlist[sym] = item
         return item
 

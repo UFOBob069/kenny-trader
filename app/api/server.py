@@ -161,8 +161,8 @@ async def chart(symbol: str, signal_id: str | None = None):
     if sym not in orch.scan_universe:
         return JSONResponse({"error": f"{sym} not in today's scan"}, status_code=404)
     if sym not in orch.detectors:
-        orch.schedule_chart_init(sym)
-        return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
+        if not await orch.ensure_chart(sym):
+            return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
     payload = orch.chart(sym, signal_id=signal_id)
     if payload is None:
         return JSONResponse({"error": f"chart not ready for {symbol}"}, status_code=404)
