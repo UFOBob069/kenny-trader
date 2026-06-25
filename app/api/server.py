@@ -134,6 +134,10 @@ def status():
         "blocked_reason": reason,
         "min_market_cap_millions": orch.rules.min_market_cap_millions,
         "auto_trade_threshold": orch.rules.auto_trade_threshold,
+        "scan_interval_seconds": 300,
+        "bar_poll_interval_seconds": 30,
+        "signal_ttl_seconds": settings.signal_ttl_seconds,
+        "active_detectors": len(orch.detectors),
     }
 
 

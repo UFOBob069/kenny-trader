@@ -327,6 +327,10 @@ function oppCard(s) {
   const rr = s.target && s.entry && s.stop
     ? (Math.abs(s.target - s.entry) / Math.abs(s.entry - s.stop)).toFixed(1) : '—';
   const thresh = lastStatus.auto_trade_threshold ?? 90;
+  const ageMin = s.created_at
+    ? Math.max(0, Math.floor((Date.now() - new Date(s.created_at).getTime()) / 60000))
+    : null;
+  const ageHint = ageMin != null ? `<div class="auto-hint">${ageMin}m ago</div>` : '';
   const autoHint = lastStatus.auto_trade_enabled && s.confidence < thresh
     ? `<div class="auto-hint">Auto needs ${thresh}%+</div>` : '';
   const sel = s.id === activeSignalId ? ' selected' : '';
@@ -341,6 +345,7 @@ function oppCard(s) {
     ${confidenceMini(s.breakdown)}
     <div class="levels"><span>E ${s.entry}</span><span>S ${s.stop}</span><span>T ${s.target}</span></div>
     <div class="rr">R:R ${rr}</div>
+    ${ageHint}
     ${autoHint}
     <div class="actions" onclick="event.stopPropagation()">
       <button class="${btnCls}" onclick="approve('${s.id}')">${btnLabel}</button>

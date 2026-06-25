@@ -18,6 +18,7 @@ from app.data.finnhub import FinnhubClient
 from app.data.scan_data import DailyScanData
 from app.db.store import make_store
 from app.engine.risk import RiskManager, RuntimeRules
+from app.engine.signal_hygiene import expire_reason
 from app.engine.scanner import Scanner
 from app.engine.trader import Trader
 from app.models import Candidate, Signal, SignalStatus, WatchItem
@@ -25,10 +26,10 @@ from app.signals.detector import SetupDetector
 
 log = logging.getLogger(__name__)
 
-SCAN_INTERVAL = 300        # re-scan candidates every 5 minutes
-BAR_POLL_INTERVAL = 30     # poll for new 1-min bars every 30 s
-MARK_INTERVAL = 60         # refresh open-trade marks every minute
-MAX_ACTIVE_SYMBOLS = 8
+SCAN_INTERVAL = 300        # re-scan universe every 5 minutes
+BAR_POLL_INTERVAL = 30     # poll 1-min bars every 30 s (setup detection)
+MARK_INTERVAL = 60         # refresh marks + expire stale signals every minute
+MAX_ACTIVE_SYMBOLS = 12
 
 
 class Orchestrator:
@@ -92,12 +93,8 @@ class Orchestrator:
             self.rules.min_market_cap_floor_usd,
         )
 
-        # Expire pending signals for symbols dropped by the scan / cap filter.
-        for sig in list(self.store.pending_signals()):
-            if sig.symbol.upper() not in self.scan_universe:
-                sig.status = SignalStatus.EXPIRED
-                self.store.save_signal(sig)
-                log.info("Expired stale signal for %s", sig.symbol)
+        # Expire pending signals that aged out or are no longer actionable.
+        self._expire_stale_signals()
 
         ui_symbols: dict[str, str] = dict(self.scan_universe)
         for sym in self.detectors:
@@ -123,20 +120,27 @@ class Orchestrator:
             reverse=True,
         )
         if self.connected:
-            to_init = [
-                item for item in ranked[:MAX_ACTIVE_SYMBOLS]
-                if item.symbol not in self.detectors
-            ]
+            pending_syms = {s.symbol.upper() for s in self.store.pending_signals()}
+            to_init: list[str] = []
+            seen: set[str] = set()
+            for item in ranked[:MAX_ACTIVE_SYMBOLS]:
+                if item.symbol not in self.detectors:
+                    to_init.append(item.symbol)
+                    seen.add(item.symbol)
+            for sym in pending_syms:
+                if sym in self.scan_universe and sym not in self.detectors and sym not in seen:
+                    to_init.append(sym)
+                    seen.add(sym)
             if to_init:
                 results = await asyncio.gather(
-                    *(self._init_detector(item.symbol) for item in to_init),
+                    *(self._init_detector(sym) for sym in to_init),
                     return_exceptions=True,
                 )
-                for item, result in zip(to_init, results):
+                for sym, result in zip(to_init, results):
                     if isinstance(result, Exception):
-                        log.exception("Chart init failed for %s", item.symbol)
-                    else:
-                        item.watching = True
+                        log.exception("Chart init failed for %s", sym)
+                    elif sym in self.watchlist:
+                        self.watchlist[sym].watching = True
 
         filtered = await self.scanner.scan(self.scan_universe)
         self.candidates = {c.symbol: c for c in filtered}
@@ -186,12 +190,46 @@ class Orchestrator:
                 continue
             try:
                 await self.trader.refresh_marks()
+                self._expire_stale_signals()
             except Exception:
                 log.exception("Mark refresh error")
+
+    def _expire_stale_signals(self) -> None:
+        """Drop pending opportunities that timed out or are no longer actionable."""
+        now = datetime.now(timezone.utc)
+        ttl = settings.signal_ttl_seconds
+        for sig in list(self.store.pending_signals()):
+            if sig.symbol.upper() not in self.scan_universe:
+                sig.status = SignalStatus.EXPIRED
+                self.store.save_signal(sig)
+                log.info("Expired signal for %s — left scan universe", sig.symbol)
+                continue
+
+            price = None
+            det = self.detectors.get(sig.symbol.upper())
+            if det and det.bars:
+                price = det.bars[-1].close
+            else:
+                item = self.watchlist.get(sig.symbol.upper())
+                if item and item.price:
+                    price = item.price
+
+            reason = expire_reason(sig, price, now, ttl)
+            if reason:
+                sig.status = SignalStatus.EXPIRED
+                self.store.save_signal(sig)
+                log.info("Expired signal for %s — %s", sig.symbol, reason)
 
     # ------------------------------------------------------------------ #
 
     async def _handle_signal(self, signal: Signal, det: SetupDetector) -> None:
+        sym = signal.symbol.upper()
+        for existing in self.store.pending_signals():
+            if existing.symbol.upper() == sym and existing.id != signal.id:
+                existing.status = SignalStatus.EXPIRED
+                self.store.save_signal(existing)
+                log.info("Replaced stale pending signal for %s", sym)
+
         cand = signal.candidate
         analysis = await self.analyst.analyze(cand) if cand else {"sentiment": "neutral", "score": 50, "reasons": []}
 
@@ -226,7 +264,7 @@ class Orchestrator:
             return {"ok": False, "error": "broker not connected"}
         # signals go stale fast
         age = (datetime.now(timezone.utc) - sig.created_at).total_seconds()
-        if age > 600:
+        if age > settings.signal_ttl_seconds:
             sig.status = SignalStatus.EXPIRED
             self.store.save_signal(sig)
             return {"ok": False, "error": "signal expired (>10 min old)"}

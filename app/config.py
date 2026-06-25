@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     shakeout_recovery_bars: int = 10      # bars allowed between low break and recovery
     short_extension_pct: float = 1.0      # HOD must be >= this % above VWAP before a short
     min_reward_risk: float = 1.5          # skip signals with worse reward:risk
+    signal_ttl_seconds: int = 600         # auto-expire pending signals after 10 min
 
     # Dashboard (Railway sets PORT; bind 0.0.0.0 in production)
     api_host: str = "0.0.0.0"
