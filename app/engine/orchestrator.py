@@ -39,7 +39,7 @@ class Orchestrator:
         self.risk = RiskManager(self.rules)
         self.broker = make_broker()
         alpaca = self.broker if isinstance(self.broker, AlpacaClient) else None
-        self.scan_data = DailyScanData(FinnhubClient(), alpaca)
+        self.scan_data = DailyScanData(FinnhubClient(), alpaca, self.rules)
         self.scanner = Scanner(self.scan_data)
         self.analyst = CatalystAnalyst()
         self.trader = Trader(self.broker, self.store, self.risk)

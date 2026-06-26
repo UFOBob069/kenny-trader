@@ -20,6 +20,7 @@ class RuntimeRules:
         self.risk_per_trade: float = cfg.risk_per_trade
         self.max_position_size: float = cfg.max_position_size
         self.min_market_cap_millions: float = 500.0  # 0 = show all; otherwise floor in $M
+        self.scan_russell_1000_only: bool = True  # NYSE/Nasdaq names in Russell 1000
 
     @property
     def min_market_cap_floor_usd(self) -> float:

@@ -279,6 +279,24 @@ async function setMarketCap(millions) {
 }
 window.setMarketCap = setMarketCap;
 
+function renderRussellToggle(on) {
+  const el = document.getElementById('russell-toggle');
+  if (!el) return;
+  el.innerHTML = `<span class="lbl">Universe</span>
+    <button class="${on ? 'active' : ''}" onclick="setRussellFilter(true)" title="NYSE/Nasdaq Russell 1000 only">R1K</button>
+    <button class="${on ? '' : 'active'}" onclick="setRussellFilter(false)" title="All NYSE/Nasdaq movers">Wide</button>`;
+}
+
+async function setRussellFilter(enabled) {
+  await j('/api/filters/russell-1000', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  toast(enabled ? 'Russell 1000 filter ON' : 'Wide universe (NYSE/Nasdaq)', true);
+  refreshAll();
+}
+window.setRussellFilter = setRussellFilter;
+
 function setCmd(id, text, cls) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -309,6 +327,7 @@ async function refreshCommandBar() {
   const sw = document.getElementById('auto-switch');
   sw.className = 'switch' + (s.auto_trade_enabled ? ' on' : '');
   sw.setAttribute('aria-checked', s.auto_trade_enabled ? 'true' : 'false');
+  renderRussellToggle(s.scan_russell_1000_only !== false);
   renderCapSelector(s.min_market_cap_millions);
 }
 

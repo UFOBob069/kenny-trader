@@ -104,6 +104,13 @@ async def set_market_cap_filter(body: dict):
     return {"ok": True, "min_market_cap_millions": orch.rules.min_market_cap_millions}
 
 
+@app.put("/api/filters/russell-1000")
+async def set_russell_filter(body: dict):
+    orch.rules.scan_russell_1000_only = bool(body.get("enabled", True))
+    await orch.rescan_universe()
+    return {"ok": True, "scan_russell_1000_only": orch.rules.scan_russell_1000_only}
+
+
 @app.post("/api/automation/toggle")
 def toggle_automation():
     orch.rules.auto_trade_enabled = not orch.rules.auto_trade_enabled
@@ -138,6 +145,7 @@ def status():
         "bar_poll_interval_seconds": 30,
         "signal_ttl_seconds": settings.signal_ttl_seconds,
         "active_detectors": len(orch.detectors),
+        "scan_russell_1000_only": orch.rules.scan_russell_1000_only,
     }
 
 

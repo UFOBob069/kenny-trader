@@ -6,19 +6,28 @@ from typing import TYPE_CHECKING
 
 from app.config import settings
 from app.data.finnhub import FinnhubClient, normalize_earnings
+from app.data.symbol_filter import is_common_ticker
 
 if TYPE_CHECKING:
     from app.data.alpaca import AlpacaClient
+    from app.engine.risk import RuntimeRules
 
 log = logging.getLogger(__name__)
 
 
 class DailyScanData:
-    def __init__(self, finnhub: FinnhubClient, alpaca: AlpacaClient | None = None) -> None:
+    def __init__(
+        self,
+        finnhub: FinnhubClient,
+        alpaca: AlpacaClient | None = None,
+        rules: RuntimeRules | None = None,
+    ) -> None:
         self.finnhub = finnhub
         self.alpaca = alpaca
+        self.rules = rules
         self._earnings_rows: dict[str, dict] = {}
         self._cap_cache: dict[str, float | None] = {}
+        self._russell: set[str] | None = None
 
     async def close(self) -> None:
         await self.finnhub.close()
@@ -37,12 +46,52 @@ class DailyScanData:
             for sym in await self.alpaca.market_movers(top=settings.alpaca_movers_top):
                 symbols.setdefault(sym.upper(), "mover")
 
+        filtered = await self._apply_universe_filters(symbols)
+        self._earnings_rows = {k: v for k, v in self._earnings_rows.items() if k in filtered}
         log.info(
-            "Daily scan list: %d earnings today, %d total symbols",
+            "Daily scan list: %d earnings today, %d after universe filter",
             len(self._earnings_rows),
-            len(symbols),
+            len(filtered),
         )
-        return symbols
+        return filtered
+
+    async def _apply_universe_filters(self, symbols: dict[str, str]) -> dict[str, str]:
+        """NYSE/Nasdaq common stocks in Russell 1000 only."""
+        if not symbols:
+            return {}
+
+        russell: set[str] | None = None
+        russell_on = self.rules.scan_russell_1000_only if self.rules else True
+        if russell_on and settings.finnhub_api_key:
+            russell = await self.finnhub.russell_1000_symbols()
+            self._russell = russell or None
+
+        exchange_ok: set[str] | None = None
+        if self.alpaca:
+            exchange_ok = await self.alpaca.nyse_nasdaq_symbols()
+
+        kept: dict[str, str] = {}
+        dropped = 0
+        for sym, catalyst in symbols.items():
+            sym = sym.upper()
+            if not is_common_ticker(sym):
+                dropped += 1
+                continue
+            if russell is not None and len(russell) > 0 and sym not in russell:
+                dropped += 1
+                continue
+            if exchange_ok is not None and len(exchange_ok) > 0 and sym not in exchange_ok:
+                dropped += 1
+                continue
+            kept[sym] = catalyst
+
+        log.info(
+            "Universe filter (%s): %d kept, %d dropped",
+            "Russell 1000 + NYSE/Nasdaq" if russell_on else "NYSE/Nasdaq",
+            len(kept),
+            dropped,
+        )
+        return kept
 
     async def quote(self, symbol: str) -> dict | None:
         if not self.alpaca:

@@ -8,9 +8,12 @@ import httpx
 
 from app.config import settings
 from app.data.market_hours import ET, trading_date
+from app.data.symbol_filter import is_common_ticker
 
 log = logging.getLogger(__name__)
 BASE = "https://finnhub.io/api/v1"
+_RUSSELL_CACHE: set[str] | None = None
+_RUSSELL_CACHE_DATE = None
 
 
 def market_cap_from_profile(profile: dict, price: float | None = None) -> float | None:
@@ -61,7 +64,39 @@ class FinnhubClient:
         today = trading_date().isoformat()
         data = await self._get("/calendar/earnings", **{"from": today, "to": today})
         rows = data.get("earningsCalendar", []) if isinstance(data, dict) else []
-        return [r for r in rows if r.get("symbol") and "." not in r["symbol"]]
+        return [r for r in rows if r.get("symbol") and is_common_ticker(r["symbol"])]
+
+    async def russell_1000_symbols(self) -> set[str]:
+        """Russell 1000 proxy: holdings of the IWB ETF (refreshed daily)."""
+        global _RUSSELL_CACHE, _RUSSELL_CACHE_DATE
+        today = trading_date()
+        if _RUSSELL_CACHE is not None and _RUSSELL_CACHE_DATE == today:
+            return _RUSSELL_CACHE
+
+        symbols: set[str] = set()
+        skip = 0
+        while True:
+            data = await self._get("/etf/holdings", symbol="IWB", skip=skip)
+            if not isinstance(data, dict):
+                break
+            holdings = data.get("holdings") or []
+            if not holdings:
+                break
+            for row in holdings:
+                sym = row.get("symbol") or row.get("ticker")
+                if sym and is_common_ticker(sym):
+                    symbols.add(sym.upper())
+            if len(holdings) < 100:
+                break
+            skip += len(holdings)
+
+        if symbols:
+            _RUSSELL_CACHE = symbols
+            _RUSSELL_CACHE_DATE = today
+            log.info("Russell 1000 universe loaded: %d symbols (IWB holdings)", len(symbols))
+        else:
+            log.warning("Russell 1000 load failed — scanner will use exchange filter only")
+        return symbols
 
     async def earnings_history(self, symbol: str) -> dict | None:
         """Most recent reported quarter (for EPS beat/miss after release)."""

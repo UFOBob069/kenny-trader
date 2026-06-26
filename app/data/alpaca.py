@@ -19,8 +19,9 @@ from alpaca.data.requests import (
 )
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderClass, OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
+from alpaca.trading.enums import AssetClass, AssetExchange, AssetStatus, OrderClass, OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import (
+    GetAssetsRequest,
     GetOrdersRequest,
     LimitOrderRequest,
     StopLossRequest,
@@ -30,6 +31,7 @@ from alpaca.trading.requests import (
 from app.config import settings
 from app.data.market_hours import is_extended_hours
 from app.data.orders import OrderPlacement
+from app.data.symbol_filter import is_common_ticker
 from app.models import Bar, Direction, Trade
 
 log = logging.getLogger(__name__)
@@ -70,6 +72,7 @@ class AlpacaClient:
         self._account_cache: dict = {}
         feed_name = settings.alpaca_data_feed.lower()
         self._feed = DataFeed.SIP if feed_name == "sip" else DataFeed.IEX
+        self._nyse_nasdaq: set[str] | None = None
 
     async def connect(self) -> None:
         if not settings.alpaca_api_key or not settings.alpaca_secret_key:
@@ -116,6 +119,32 @@ class AlpacaClient:
         self._trading = None
         self._data = None
         self._screener = None
+        self._nyse_nasdaq = None
+
+    async def nyse_nasdaq_symbols(self) -> set[str]:
+        """Tradable US common stocks listed on NYSE or Nasdaq (cached per session)."""
+        if self._nyse_nasdaq is not None:
+            return self._nyse_nasdaq
+        if not self._trading:
+            return set()
+        try:
+            assets = await asyncio.to_thread(
+                self._trading.get_all_assets,
+                GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE),
+            )
+        except Exception:
+            log.exception("Alpaca asset list request failed")
+            return set()
+        allowed = {
+            a.symbol.upper()
+            for a in assets
+            if getattr(a, "tradable", False)
+            and a.exchange in (AssetExchange.NYSE, AssetExchange.NASDAQ)
+            and is_common_ticker(a.symbol)
+        }
+        self._nyse_nasdaq = allowed
+        log.info("NYSE/Nasdaq tradable universe: %d symbols", len(allowed))
+        return allowed
 
     async def minute_bars(self, symbol: str, days: int = 1) -> list[Bar]:
         if not self._data:
@@ -212,7 +241,7 @@ class AlpacaClient:
                 continue
             for item in group:
                 sym = getattr(item, "symbol", None)
-                if sym:
+                if sym and is_common_ticker(sym):
                     symbols.append(sym.upper())
         return symbols
 
