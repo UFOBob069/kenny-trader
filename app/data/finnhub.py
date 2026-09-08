@@ -95,7 +95,7 @@ class FinnhubClient:
             _RUSSELL_CACHE_DATE = today
             log.info("Russell 1000 universe loaded: %d symbols (IWB holdings)", len(symbols))
         else:
-            log.warning("Russell 1000 load failed — scanner will use exchange filter only")
+            log.warning("Russell 1000 load failed; membership could not be verified")
         return symbols
 
     async def earnings_history(self, symbol: str) -> dict | None:

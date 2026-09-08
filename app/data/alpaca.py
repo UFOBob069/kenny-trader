@@ -29,10 +29,13 @@ from alpaca.trading.requests import (
 )
 
 from app.config import settings
+from app.data.bar_sessions import split_sessions
+from app.data.relative_volume import RelativeVolumeProfile
 from app.data.market_hours import is_extended_hours
 from app.data.orders import OrderPlacement
 from app.data.symbol_filter import is_common_ticker
 from app.models import Bar, Direction, Trade
+from app.engine.liquidity import recent_activity
 
 log = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -50,6 +53,7 @@ class BrokerClient(Protocol):
     async def minute_bars(self, symbol: str, days: int = 1) -> list[Bar]: ...
     async def prior_session_bars(self, symbol: str) -> tuple[list[Bar], list[Bar]]: ...
     async def last_price(self, symbol: str) -> float | None: ...
+    async def bid_ask(self, symbol: str) -> dict | None: ...
     async def place_bracket(
         self,
         symbol: str,
@@ -73,6 +77,10 @@ class AlpacaClient:
         feed_name = settings.alpaca_data_feed.lower()
         self._feed = DataFeed.SIP if feed_name == "sip" else DataFeed.IEX
         self._nyse_nasdaq: set[str] | None = None
+        self._volume_cache: dict = {}
+        self._rvol_profiles: dict[str, RelativeVolumeProfile] = {}
+        self._rvol_latest: dict[str, tuple[float | None, datetime | None]] = {}
+        self._liquidity_activity: dict[str, dict] = {}
 
     async def connect(self) -> None:
         if not settings.alpaca_api_key or not settings.alpaca_secret_key:
@@ -164,14 +172,19 @@ class AlpacaClient:
             log.exception("Alpaca bars request failed for %s", symbol)
             return []
         raw = response.data.get(symbol.upper(), [])
-        return [_to_bar(b) for b in raw]
+        bars = [_to_bar(b) for b in raw]
+        self._liquidity_activity[symbol.upper()] = recent_activity(bars, end)
+        profile = self._rvol_profiles.get(symbol.upper())
+        if profile:
+            self._rvol_latest[symbol.upper()] = profile.measure(bars, end)
+        return bars
 
     async def prior_session_bars(self, symbol: str) -> tuple[list[Bar], list[Bar]]:
         """Prior session + today, scoped to extended-hours window (4am–8pm ET)."""
         if not self._data:
             return [], []
         now_et = datetime.now(ET)
-        start_et = (now_et - timedelta(days=3)).replace(hour=4, minute=0, second=0, microsecond=0)
+        start_et = (now_et - timedelta(days=10)).replace(hour=4, minute=0, second=0, microsecond=0)
         request = StockBarsRequest(
             symbol_or_symbols=symbol.upper(),
             timeframe=TimeFrame.Minute,
@@ -186,12 +199,58 @@ class AlpacaClient:
             return [], []
         raw = response.data.get(symbol.upper(), [])
         bars = [_to_bar(b) for b in raw]
-        if not bars:
-            return [], []
-        last_day = bars[-1].ts.astimezone(ET).date()
-        prior = [b for b in bars if b.ts.astimezone(ET).date() != last_day]
-        today = [b for b in bars if b.ts.astimezone(ET).date() == last_day]
-        return prior, today
+        profile = RelativeVolumeProfile(bars, now_et)
+        self._liquidity_activity[symbol.upper()] = recent_activity(bars, now_et)
+        self._rvol_profiles[symbol.upper()] = profile
+        self._rvol_latest[symbol.upper()] = profile.measure(bars, now_et)
+        return split_sessions(bars, now_et)
+
+    async def minute_bars_many(self, symbols: list[str]) -> dict[str, list[Bar]]:
+        """Fetch the active session for all watched symbols in one SDK call."""
+        if not symbols or not self._data:
+            return {}
+        now = datetime.now(ET)
+        start = now.replace(hour=4, minute=0, second=0, microsecond=0)
+        if now < start:
+            return {}
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols, timeframe=TimeFrame.Minute,
+            start=start, end=now, feed=self._feed,
+        )
+        response = await asyncio.to_thread(self._data.get_stock_bars, request)
+        result = {sym: [_to_bar(b) for b in response.data.get(sym, [])] for sym in symbols}
+        for sym, bars in result.items():
+            self._liquidity_activity[sym] = recent_activity(bars, now)
+            profile = self._rvol_profiles.get(sym)
+            if profile:
+                self._rvol_latest[sym] = profile.measure(bars, now)
+        return result
+
+    def liquidity_activity(self, symbol: str) -> dict:
+        return self._liquidity_activity.get(symbol.upper(), {})
+
+    async def bid_ask(self, symbol: str) -> dict | None:
+        if not self._data:
+            return None
+        try:
+            quotes = await asyncio.to_thread(
+                self._data.get_stock_latest_quote,
+                StockLatestQuoteRequest(symbol_or_symbols=symbol.upper(), feed=self._feed),
+            )
+            quote = quotes.get(symbol.upper())
+            return {"bid": quote.bid_price, "ask": quote.ask_price, "quote_at": quote.timestamp} if quote else None
+        except Exception:
+            log.exception("Alpaca bid/ask request failed for %s", symbol)
+            return None
+
+    def relative_volume(self, symbol: str) -> float | None:
+        value, ts = self._rvol_latest.get(symbol.upper(), (None, None))
+        now = datetime.now(timezone.utc)
+        if ts is None or ts.astimezone(ET).date() != now.astimezone(ET).date():
+            return None
+        if (now - ts - timedelta(minutes=1)).total_seconds() > settings.max_signal_bar_age_seconds:
+            return None
+        return value
 
     async def last_price(self, symbol: str) -> float | None:
         if not self._data:
@@ -200,7 +259,7 @@ class AlpacaClient:
         try:
             trades = await asyncio.to_thread(
                 self._data.get_stock_latest_trade,
-                StockLatestTradeRequest(symbol_or_symbols=sym),
+                StockLatestTradeRequest(symbol_or_symbols=sym, feed=self._feed),
             )
             trade = trades.get(sym)
             if trade and trade.price and trade.price > 0:
@@ -210,7 +269,7 @@ class AlpacaClient:
         try:
             quotes = await asyncio.to_thread(
                 self._data.get_stock_latest_quote,
-                StockLatestQuoteRequest(symbol_or_symbols=sym),
+                StockLatestQuoteRequest(symbol_or_symbols=sym, feed=self._feed),
             )
         except Exception:
             log.exception("Alpaca quote request failed for %s", symbol)
@@ -253,7 +312,7 @@ class AlpacaClient:
         try:
             snaps = await asyncio.to_thread(
                 self._data.get_stock_snapshot,
-                StockSnapshotRequest(symbol_or_symbols=sym),
+                StockSnapshotRequest(symbol_or_symbols=sym, feed=self._feed),
             )
         except Exception:
             log.exception("Alpaca snapshot failed for %s", symbol)
@@ -279,12 +338,20 @@ class AlpacaClient:
             "previousClose": prev_close,
             "volume": volume,
             "avgVolume": avg_vol,
+            "bid": snap.latest_quote.bid_price if snap.latest_quote else None,
+            "ask": snap.latest_quote.ask_price if snap.latest_quote else None,
+            "quote_at": snap.latest_quote.timestamp if snap.latest_quote else None,
         }
 
     async def _avg_daily_volume(self, symbol: str, days: int = 20) -> float:
         if not self._data:
             return 0.0
-        end = datetime.now(timezone.utc)
+        today = datetime.now(ET).date()
+        key = (symbol, days)
+        cached = self._volume_cache.get(key)
+        if cached and cached[0] == today:
+            return cached[1]
+        end = datetime.combine(today, datetime.min.time(), tzinfo=ET).astimezone(timezone.utc)
         start = end - timedelta(days=days + 10)
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
@@ -298,8 +365,12 @@ class AlpacaClient:
         except Exception:
             return 0.0
         bars = response.data.get(symbol, [])
-        vols = [float(b.volume) for b in bars[-days:] if b.volume]
-        return sum(vols) / len(vols) if vols else 0.0
+        history = [b for b in bars if b.timestamp.astimezone(ET).date() < today]
+        vols = [float(b.volume) for b in history[-days:] if b.volume]
+        average = sum(vols) / len(vols) if vols else 0.0
+        if average:
+            self._volume_cache[key] = (today, average)
+        return average
 
     async def place_bracket(
         self,

@@ -22,6 +22,10 @@ class CatalystAnalyst:
     def __init__(self) -> None:
         self._client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 
+    async def close(self) -> None:
+        if self._client:
+            await self._client.close()
+
     async def analyze(self, candidate: Candidate) -> dict:
         if self._client is None:
             return {"sentiment": "neutral", "score": 50, "guidance_change": "unknown",

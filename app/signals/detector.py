@@ -14,9 +14,10 @@ SHORT — VWAP breakdown after an extended move:
 from __future__ import annotations
 
 import math
+from datetime import timedelta
 
 from app.config import settings
-from app.models import Bar, Candidate, Direction, SetupType, Signal
+from app.models import Bar, Candidate, Direction, SetupType, Signal, utcnow
 from app.signals.vwap import VwapTracker
 
 
@@ -52,6 +53,8 @@ class SetupDetector:
 
     def on_bar(self, bar: Bar, candidate: Candidate | None = None) -> list[Signal]:
         self._emitted_this_bar = []
+        if self.bars and bar.ts <= self.bars[-1].ts:
+            return []
         prev_close = self.bars[-1].close if self.bars else None
         prev_vwap = self.vwap.value
 
@@ -67,9 +70,12 @@ class SetupDetector:
 
         warmed_up = i + 1 > settings.detector_warmup_bars
 
-        # --- fakeout: break of an established low -------------------------
-        if warmed_up and bar.low < self.lod and i - self.lod_bar_index >= 2:
-            self.broken_low = self.lod
+        # A later range can form above the day's low (the PayPal example).
+        prior_range = self.bars[max(0, i - settings.setup_low_lookback_bars):i]
+        range_low = min((b.low for b in prior_range), default=math.inf)
+        established = len(prior_range) >= 3 and min(b.low for b in prior_range[:-1]) == range_low
+        if warmed_up and established and bar.low < range_low and self.broken_low is None:
+            self.broken_low = range_low
             self.fakeout_low = bar.low
             self.fakeout_bar_index = i
             self.shakeout_confirmed = False
@@ -78,6 +84,9 @@ class SetupDetector:
             self.lod = bar.low
             self.lod_bar_index = i
         self.lod = min(self.lod, bar.low)
+
+        if self.fakeout_low is not None:
+            self.fakeout_low = min(self.fakeout_low, bar.low)
 
         # --- shakeout: quick recovery above the broken low -----------------
         if (
@@ -88,14 +97,14 @@ class SetupDetector:
         ):
             self.shakeout_confirmed = True
 
-        # discard stale fakeouts that never recovered
+        # Recovery alone cannot keep an old setup armed indefinitely.
         if (
             self.broken_low is not None
-            and not self.shakeout_confirmed
             and i - self.fakeout_bar_index > settings.shakeout_recovery_bars
         ):
             self.broken_low = None
             self.fakeout_low = None
+            self.shakeout_confirmed = False
 
         # --- crosses --------------------------------------------------------
         crossed_above = (
@@ -111,9 +120,10 @@ class SetupDetector:
         if warmed_up and self.shakeout_confirmed and crossed_above and self.fakeout_low is not None:
             entry = bar.close
             stop = self.fakeout_low
-            risk = entry - stop
-            # target HOD, unless the reclaim bar itself printed the high — then 2R
-            target = self.hod if self.hod - entry >= risk * settings.min_reward_risk else entry + 2.0 * risk
+            target = self.hod
+            pdv = self.prior_vwap.value if self.has_prior else None
+            if pdv is not None and pdv > entry:
+                target = min(target, pdv)
             sig = self._make_signal(Direction.LONG, SetupType.FAUX_SHOW_BRO, entry, stop, target, candidate)
             if sig:
                 self._emitted_this_bar.append(sig)
@@ -127,8 +137,7 @@ class SetupDetector:
             entry = bar.close
             stop = self.hod
             pdv = self.prior_vwap.value if self.has_prior else None
-            target = pdv if pdv is not None and pdv < entry else entry - 2.0 * (stop - entry)
-            sig = self._make_signal(Direction.SHORT, SetupType.VWAP_BREAKDOWN, entry, stop, target, candidate)
+            sig = self._make_signal(Direction.SHORT, SetupType.VWAP_BREAKDOWN, entry, stop, pdv, candidate) if pdv is not None else None
             if sig:
                 self._emitted_this_bar.append(sig)
 
@@ -147,6 +156,13 @@ class SetupDetector:
         target: float,
         candidate: Candidate | None,
     ) -> Signal | None:
+        entry, stop, target = round(entry, 2), round(stop, 2), round(target, 2)
+        if not all(math.isfinite(p) and p > 0 for p in (entry, stop, target)):
+            return None
+        if direction == Direction.LONG and not stop < entry < target:
+            return None
+        if direction == Direction.SHORT and not target < entry < stop:
+            return None
         risk = abs(entry - stop)
         if risk <= 0:
             return None
@@ -154,6 +170,7 @@ class SetupDetector:
         if reward / risk < settings.min_reward_risk:
             return None
         return Signal(
+            created_at=self.bars[-1].ts + timedelta(minutes=1) if self.bars else utcnow(),
             symbol=self.symbol,
             direction=direction,
             setup=setup,

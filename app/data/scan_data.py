@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from app.config import settings
@@ -28,6 +29,8 @@ class DailyScanData:
         self._earnings_rows: dict[str, dict] = {}
         self._cap_cache: dict[str, float | None] = {}
         self._russell: set[str] | None = None
+        self._quote_cache: dict[str, tuple[float, dict]] = {}
+        self.filter_errors: list[str] = []
 
     async def close(self) -> None:
         await self.finnhub.close()
@@ -57,18 +60,27 @@ class DailyScanData:
 
     async def _apply_universe_filters(self, symbols: dict[str, str]) -> dict[str, str]:
         """NYSE/Nasdaq common stocks in Russell 1000 only."""
+        self.filter_errors = []
         if not symbols:
             return {}
 
         russell: set[str] | None = None
         russell_on = self.rules.scan_russell_1000_only if self.rules else True
-        if russell_on and settings.finnhub_api_key:
+        if russell_on:
             russell = await self.finnhub.russell_1000_symbols()
             self._russell = russell or None
+            if not russell:
+                self.filter_errors.append("Russell 1000 membership unavailable; scan paused while this filter is enabled.")
+                log.warning(self.filter_errors[-1])
+                return {}
 
         exchange_ok: set[str] | None = None
         if self.alpaca:
             exchange_ok = await self.alpaca.nyse_nasdaq_symbols()
+            if not exchange_ok:
+                self.filter_errors.append("NYSE/Nasdaq asset list unavailable; scan paused.")
+                log.warning(self.filter_errors[-1])
+                return {}
 
         kept: dict[str, str] = {}
         dropped = 0
@@ -96,14 +108,27 @@ class DailyScanData:
     async def quote(self, symbol: str) -> dict | None:
         if not self.alpaca:
             return None
-        return await self.alpaca.quote_snapshot(symbol)
+        cached = self._quote_cache.get(symbol)
+        if cached and monotonic() - cached[0] < min(5, settings.max_quote_age_seconds):
+            return self._quote_metrics(symbol, cached[1])
+        quote = await self.alpaca.quote_snapshot(symbol)
+        if quote:
+            self._quote_cache[symbol] = (monotonic(), quote)
+        return self._quote_metrics(symbol, quote) if quote else None
+
+    def _quote_metrics(self, symbol: str, quote: dict) -> dict:
+        return {
+            **quote, "relativeVolume": self.alpaca.relative_volume(symbol),
+            "liquidity": {**self.alpaca.liquidity_activity(symbol),
+                          **{key: quote.get(key) for key in ("bid", "ask", "quote_at")}},
+        }
 
     async def market_cap(self, symbol: str, price: float | None = None) -> float | None:
         sym = symbol.upper()
-        if sym not in self._cap_cache:
+        if sym not in self._cap_cache or self._cap_cache[sym] is None:
             px = price
             if px is None and self.alpaca:
-                quote = await self.alpaca.quote_snapshot(sym)
+                quote = await self.quote(sym)
                 px = float(quote["price"]) if quote and quote.get("price") else None
             self._cap_cache[sym] = await self.finnhub.market_cap_usd(sym, price=px)
         return self._cap_cache[sym]
@@ -116,12 +141,12 @@ class DailyScanData:
         dropped = 0
         for sym, catalyst in symbols.items():
             cap = await self.market_cap(sym)
-            if cap is None or cap >= floor_usd:
+            if cap is not None and cap >= floor_usd:
                 kept[sym] = catalyst
-                if cap is None:
-                    log.debug("Keeping %s — market cap unknown", sym)
             else:
                 dropped += 1
+                if cap is None:
+                    self.filter_errors.append(f"{sym}: market cap unavailable; excluded by the enabled cap filter.")
         log.info(
             "Market cap filter (>= $%.0fM): %d kept, %d dropped",
             floor_usd / 1_000_000,

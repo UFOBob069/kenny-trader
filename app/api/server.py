@@ -133,6 +133,7 @@ def status():
         "extended_hours": is_extended_hours(),
         "watching": sorted(orch.detectors.keys()),
         "scan_universe": orch.scan_universe,
+        "scan_filter_errors": orch.scan_data.filter_errors,
         "candidates": {s: c.model_dump() for s, c in orch.candidates.items()},
         "auto_trade_enabled": orch.rules.auto_trade_enabled,
         "trades_today": orch.risk.trades_today,
@@ -141,8 +142,15 @@ def status():
         "blocked_reason": reason,
         "min_market_cap_millions": orch.rules.min_market_cap_millions,
         "auto_trade_threshold": orch.rules.auto_trade_threshold,
-        "scan_interval_seconds": 300,
-        "bar_poll_interval_seconds": 30,
+        "scan_interval_seconds": settings.scan_interval_seconds,
+        "bar_poll_interval_seconds": settings.bar_poll_interval_seconds,
+        "last_scan_at": orch.last_scan_at,
+        "last_scan_duration_seconds": orch.last_scan_duration_seconds,
+        "last_poll_duration_seconds": orch.last_poll_duration_seconds,
+        "data_feed": settings.alpaca_data_feed if settings.broker == "alpaca" else "ibkr",
+        "morning_only": settings.morning_only,
+        "setup_score_weights": {"technical": 100, "fundamental": 0, "ai": 0},
+        "last_bar_at": {sym: det.bars[-1].ts if det.bars else None for sym, det in orch.detectors.items()},
         "signal_ttl_seconds": settings.signal_ttl_seconds,
         "active_detectors": len(orch.detectors),
         "scan_russell_1000_only": orch.rules.scan_russell_1000_only,
@@ -173,8 +181,8 @@ async def chart(symbol: str, signal_id: str | None = None):
     if sym not in orch.scan_universe:
         return JSONResponse({"error": f"{sym} not in today's scan"}, status_code=404)
     if sym not in orch.detectors:
-        if not await orch.ensure_chart(sym):
-            return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
+        orch.schedule_chart_init(sym)
+        return {"loading": True, "bars": [], "vwap": [], "prior_vwap": [], "markers": []}
     payload = orch.chart(sym, signal_id=signal_id)
     if payload is None:
         return JSONResponse({"error": f"chart not ready for {symbol}"}, status_code=404)

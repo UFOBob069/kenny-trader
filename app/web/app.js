@@ -9,6 +9,8 @@ let lastStatus = {};
 let lastPnl = {};
 let chartHasBars = false;
 let chartPollTimer = null;
+let chartGeneration = 0;
+let chartInFlight = null;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -35,7 +37,7 @@ function fmtCap(n) {
 function fmtMoney(n) {
   if (n == null || n === '—') return '—';
   const v = Number(n);
-  const s = v >= 0 ? '+' : '';
+  const s = v >= 0 ? '+' : '-';
   return `${s}$${Math.abs(v).toFixed(2)}`;
 }
 
@@ -104,7 +106,7 @@ function renderChartData(d) {
   }
   const setupEl = document.getElementById('chart-setup');
   if (d.signal) {
-    setupEl.textContent = `${d.signal.setup} · ${d.signal.direction} · ${d.signal.confidence}% · R:R ${d.signal.reward_risk}`;
+    setupEl.textContent = `${d.signal.setup} · ${d.signal.direction} · ${d.signal.confidence}/100 · R:R ${d.signal.reward_risk}`;
     if (!activeSignalId) activeSignalId = d.signal.id;
   } else {
     setupEl.textContent = '';
@@ -113,13 +115,19 @@ function renderChartData(d) {
 
 async function refreshChart() {
   if (!activeSymbol) return;
+  const generation = chartGeneration;
+  if (chartInFlight === generation) return;
+  chartInFlight = generation;
+  const symbol = activeSymbol;
   const loading = document.getElementById('chart-loading');
   if (loading && !chartHasBars) loading.style.display = 'flex';
   const q = activeSignalId ? `?signal_id=${activeSignalId}` : '';
   let delay = 250;
   try {
     for (let i = 0; i < 60; i++) {
-      const d = await j(`/api/chart/${activeSymbol}${q}`);
+      if (generation !== chartGeneration) return;
+      const d = await j(`/api/chart/${symbol}${q}`);
+      if (generation !== chartGeneration) return;
       if (d.loading) {
         await sleep(delay);
         delay = Math.min(delay * 1.4, 2000);
@@ -139,13 +147,15 @@ async function refreshChart() {
     }
     if (loading) loading.textContent = 'Chart timed out';
   } catch (_) {
-    if (loading) loading.textContent = 'Chart failed';
+    if (generation === chartGeneration && loading) loading.textContent = 'Chart failed';
+  } finally {
+    if (chartInFlight === generation) chartInFlight = null;
   }
 }
 
 function startChartPoll() {
   if (chartPollTimer) clearInterval(chartPollTimer);
-  chartPollTimer = setInterval(refreshChart, 15000);
+  chartPollTimer = setInterval(refreshChart, 5000);
 }
 
 /* ── Scanner rail ──────────────────────────────────────── */
@@ -156,6 +166,11 @@ function renderScanner() {
   const ready = watchItems.filter(w => w.qualified).length;
   countEl.textContent = `${ready}/${watchItems.length} ready`;
   if (!watchItems.length) {
+    const errors = lastStatus.scan_filter_errors || [];
+    if (errors.length) {
+      el.textContent = errors.join(' ');
+      return;
+    }
     el.innerHTML = '<div class="empty">No symbols — check API keys or cap filter.</div>';
     return;
   }
@@ -189,8 +204,10 @@ function weightedBarRow(label, weightPct, value, scan) {
 function checkLine(name, c, weight) {
   if (!c) return '';
   const icon = c.ok ? '✓' : '✗';
-  const unit = name === 'gap' ? '%' : name === 'rvol' ? 'x' : '';
-  return `<div class="checkline ${c.ok ? 'ok' : 'no'}">${icon} ${name} (${weight}%): ${c.value} / ${c.need}${unit}</div>`;
+  const unit = name === 'gap' || name === 'spread' ? '%' : name === 'rvol' ? 'x' : '';
+  const label = name === 'dollar_volume' ? 'Turnover 5m ($)' : name === 'activity' ? 'Active minutes / 5' : name;
+  const weighting = weight == null ? '' : ` (${weight}%)`;
+  return `<div class="checkline ${c.ok ? 'ok' : 'no'}">${icon} ${label}${weighting}: ${c.value ?? 'unknown'} / ${c.need}${unit}</div>`;
 }
 
 function renderDetail(d) {
@@ -201,7 +218,8 @@ function renderDetail(d) {
   }
   const gapP = d.checks?.gap ? Math.min(100, Math.abs(d.checks.gap.value) / d.checks.gap.need * 100) : 0;
   const rvolP = d.checks?.rvol ? Math.min(100, d.checks.rvol.value / d.checks.rvol.need * 100) : 0;
-  const priceP = d.checks?.price ? Math.min(100, d.checks.price.value / d.checks.price.need * 100) : 0;
+  const liquidityKeys = ['dollar_volume', 'spread', 'activity'];
+  const liquidityP = liquidityKeys.filter(k => d.checks?.[k]?.ok).length / liquidityKeys.length * 100;
   el.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <strong style="font-size:16px">${d.symbol}</strong>
@@ -210,7 +228,7 @@ function renderDetail(d) {
     <div class="bd-block">
       ${weightedBarRow('Gap', 40, gapP, true)}
       ${weightedBarRow('RVol', 40, rvolP, true)}
-      ${weightedBarRow('Price', 20, priceP, true)}
+      ${weightedBarRow('Liquidity', 20, liquidityP, true)}
     </div>
     <div class="detail-grid">
       <div class="detail-cell"><div class="lbl">Mkt Cap</div><div class="val">${fmtCap(d.market_cap_usd)}</div></div>
@@ -220,10 +238,12 @@ function renderDetail(d) {
     </div>
     ${checkLine('gap', d.checks?.gap, 40)}
     ${checkLine('rvol', d.checks?.rvol, 40)}
-    ${checkLine('price', d.checks?.price, 20)}`;
+    ${liquidityKeys.map(k => checkLine(k, d.checks?.[k])).join('')}`;
 }
 
 async function selectSymbol(sym, signalId) {
+  chartGeneration += 1;
+  const generation = chartGeneration;
   activeSymbol = sym;
   if (signalId !== undefined) activeSignalId = signalId;
   else {
@@ -239,10 +259,11 @@ async function selectSymbol(sym, signalId) {
   }
   renderScanner();
   renderOpportunities();
+  renderDetail(watchItems.find(w => w.symbol === sym));
   refreshChart();
   j(`/api/watchlist/${sym}`)
-    .then(d => renderDetail(d))
-    .catch(() => renderDetail(null));
+    .then(d => { if (generation === chartGeneration) renderDetail(d); })
+    .catch(() => { if (generation === chartGeneration) renderDetail(null); });
 }
 window.selectSymbol = selectSymbol;
 
@@ -329,6 +350,7 @@ async function refreshCommandBar() {
   sw.setAttribute('aria-checked', s.auto_trade_enabled ? 'true' : 'false');
   renderRussellToggle(s.scan_russell_1000_only !== false);
   renderCapSelector(s.min_market_cap_millions);
+  renderScanner();
 }
 
 /* ── Best opportunities ────────────────────────────────── */
@@ -336,9 +358,7 @@ async function refreshCommandBar() {
 function confidenceMini(b) {
   if (!b) return '';
   return `<div class="bd-block" style="margin:4px 0;padding:4px">
-    ${weightedBarRow('Tech', 45, b.technical)}
-    ${weightedBarRow('Fund', 25, b.fundamental)}
-    ${weightedBarRow('AI', 30, b.ai)}
+    ${weightedBarRow('Setup', 100, b.technical)}
   </div>`;
 }
 
@@ -351,14 +371,14 @@ function oppCard(s) {
     : null;
   const ageHint = ageMin != null ? `<div class="auto-hint">${ageMin}m ago</div>` : '';
   const autoHint = lastStatus.auto_trade_enabled && s.confidence < thresh
-    ? `<div class="auto-hint">Auto needs ${thresh}%+</div>` : '';
+    ? `<div class="auto-hint">Auto needs ${thresh}/100</div>` : '';
   const sel = s.id === activeSignalId ? ' selected' : '';
   const btnCls = s.direction === 'LONG' ? 'buy' : 'short';
   const btnLabel = s.direction === 'LONG' ? 'Buy' : 'Short';
   return `<div class="opp${sel}" onclick="selectSymbol('${s.symbol}','${s.id}')">
     <div class="head">
       <span>${s.symbol} <span style="color:${s.direction === 'LONG' ? 'var(--green)' : 'var(--red)'}">${s.direction}</span></span>
-      <span class="conf">${s.confidence}%</span>
+      <span class="conf">${s.confidence}/100</span>
     </div>
     <div style="font-size:11px;color:var(--muted)">${(s.setup || '').replaceAll('_', ' ')}</div>
     ${confidenceMini(s.breakdown)}
@@ -530,3 +550,4 @@ refreshAll();
 refreshSettings();
 startChartPoll();
 setInterval(refreshAll, 10000);
+setInterval(refreshSignals, 3000);

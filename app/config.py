@@ -41,7 +41,13 @@ class Settings(BaseSettings):
     # Candidate filters
     min_gap_pct: float = 8.0
     min_relative_volume: float = 3.0
-    min_price: float = 5.0
+    min_price: float = 0.0  # legacy setting, no longer used for qualification
+    min_dollar_volume_5m: float = Field(default=250_000, ge=0)
+    max_spread_pct: float = Field(default=1.0, gt=0)
+    max_spread_risk_pct: float = Field(default=20.0, gt=0)
+    max_volume_participation_pct: float = Field(default=1.0, gt=0, le=100)
+    max_quote_age_seconds: int = Field(default=15, gt=0)
+    min_active_minutes: int = Field(default=4, ge=1, le=5)
 
     # Signal engine tuning
     detector_warmup_bars: int = 5
@@ -49,6 +55,11 @@ class Settings(BaseSettings):
     short_extension_pct: float = 1.0      # HOD must be >= this % above VWAP before a short
     min_reward_risk: float = 1.5          # skip signals with worse reward:risk
     signal_ttl_seconds: int = 600         # auto-expire pending signals after 10 min
+    scan_interval_seconds: int = Field(default=60, ge=15)
+    bar_poll_interval_seconds: int = Field(default=10, ge=5)
+    max_signal_bar_age_seconds: int = Field(default=90, ge=0)
+    morning_only: bool = True
+    setup_low_lookback_bars: int = Field(default=5, ge=3)
 
     # Dashboard (Railway sets PORT; bind 0.0.0.0 in production)
     api_host: str = "0.0.0.0"

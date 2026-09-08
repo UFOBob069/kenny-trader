@@ -1,14 +1,12 @@
-"""Confidence engine: blend technical, fundamental, and AI scores into 0-100.
+"""Rank setups by technical structure; earnings and AI are context, not gates.
 
-Weights: technical 45%, fundamental 25%, AI catalyst read 30%.
-All three sub-scores are expressed in the direction of the trade, i.e. 100 is
-maximally favorable for the signal whether it is LONG or SHORT.
+Scores are heuristic readiness measures, not calibrated win probabilities.
 """
 from __future__ import annotations
 
 from app.models import Candidate, ConfidenceBreakdown, Direction, SetupType, Signal
 
-W_TECH, W_FUND, W_AI = 0.45, 0.25, 0.30
+W_TECH, W_FUND, W_AI = 1.0, 0.0, 0.0
 
 
 def technical_score(signal: Signal, above_vwap: bool, above_prior_vwap: bool | None) -> tuple[float, list[str]]:
@@ -43,9 +41,8 @@ def technical_score(signal: Signal, above_vwap: bool, above_prior_vwap: bool | N
             score += 5
             reasons.append(f"Relative volume {rvol:.1f}x")
 
-        gap = cand.gap_pct if long_side else -cand.gap_pct
         if abs(cand.gap_pct) >= 8:
-            score += 8 if gap > 0 else 4
+            score += 8
             reasons.append(f"Gap {cand.gap_pct:+.1f}%")
 
     if signal.reward_risk >= 2.5:

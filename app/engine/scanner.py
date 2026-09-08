@@ -2,7 +2,7 @@
 
 The daily *universe* is all earnings reporters and top movers. Symbols are
 watched on the chart immediately. *Candidates* are the subset that also pass
-gap / relative-volume filters (used for signal emphasis).
+gap / relative-volume filters (required for publishing signals).
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class Scanner:
         log.info("Scanning %d symbols from daily universe", len(symbols))
         candidates: list[Candidate] = []
         for sym, catalyst in symbols.items():
-            cand = await self._evaluate(sym, catalyst, require_filters=True)
+            cand = await self._evaluate(sym, catalyst, require_filters=True, with_news=False)
             if cand:
                 candidates.append(cand)
 
@@ -65,16 +65,14 @@ class Scanner:
 
         price = float(quote.get("price") or 0)
         prior_close = float(quote.get("previousClose") or 0)
-        avg_vol = float(quote.get("avgVolume") or 0)
-        volume = float(quote.get("volume") or 0)
         gap_pct = (price - prior_close) / prior_close * 100 if prior_close else 0.0
-        rvol = volume / avg_vol if avg_vol else 0.0
-        score, qualified, checks = criteria_score(gap_pct, rvol, price, catalyst)
+        rvol = float(quote.get("relativeVolume") or 0.0)
+        score, qualified, checks = criteria_score(gap_pct, rvol, price, catalyst, quote.get("liquidity"))
 
         earnings = await self.scan_data.earnings_for(sym, catalyst) if with_news else None
         headlines = await self.scan_data.headlines(sym) if with_news else []
 
-        market_cap = await self.scan_data.market_cap(sym)
+        market_cap = await self.scan_data.market_cap(sym, price=price)
 
         return WatchItem(
             symbol=sym,
@@ -105,16 +103,15 @@ class Scanner:
         price = quote.get("price") or 0
         prior_close = quote.get("previousClose") or 0
         avg_vol = quote.get("avgVolume") or 0
-        volume = quote.get("volume") or 0
 
         if prior_close <= 0:
             return None
 
         gap_pct = (price - prior_close) / prior_close * 100
-        rvol = volume / avg_vol if avg_vol else 0.0
+        rvol = float(quote.get("relativeVolume") or 0.0)
 
         if require_filters:
-            _, qualified, _ = criteria_score(gap_pct, rvol, price, catalyst)
+            _, qualified, _ = criteria_score(gap_pct, rvol, price, catalyst, quote.get("liquidity"))
             if not qualified:
                 return None
 

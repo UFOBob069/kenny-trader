@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from ib_async import IB, Contract, LimitOrder, Order, Stock, StopOrder, util
 
 from app.data.orders import OrderPlacement
+from app.data.bar_sessions import split_sessions
 from app.config import settings
 from app.models import Bar, Direction
 
@@ -54,14 +55,9 @@ class IbkrClient:
         ]
 
     async def prior_session_bars(self, symbol: str) -> tuple[list[Bar], list[Bar]]:
-        """(prior_day_bars, today_bars) split on calendar date of the last bar."""
-        bars = await self.minute_bars(symbol, days=2)
-        if not bars:
-            return [], []
-        last_day = bars[-1].ts.date()
-        prior = [b for b in bars if b.ts.date() != last_day]
-        today = [b for b in bars if b.ts.date() == last_day]
-        return prior, today
+        """Latest completed prior session and current Eastern calendar day."""
+        bars = await self.minute_bars(symbol, days=10)
+        return split_sessions(bars, datetime.now(timezone.utc))
 
     async def last_price(self, symbol: str) -> float | None:
         contract = self._stock(symbol)
@@ -73,6 +69,15 @@ class IbkrClient:
             if price and price > 0:
                 return float(price)
         return None
+
+    async def bid_ask(self, symbol: str) -> dict | None:
+        contract = self._stock(symbol)
+        await self.ib.qualifyContractsAsync(contract)
+        tickers = await self.ib.reqTickersAsync(contract)
+        if not tickers:
+            return None
+        ticker = tickers[0]
+        return {"bid": ticker.bid, "ask": ticker.ask, "quote_at": ticker.time}
 
     # ------------------------------------------------------------------ #
 

@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from time import monotonic
 
 from app.ai.analyst import CatalystAnalyst
 from app.ai.confidence import score_signal
 from app.config import settings
 from app.data.alpaca import AlpacaClient
+from app.data.bar_sessions import completed_bars
+from app.data.market_hours import ET, is_morning_setup_window
 from app.data.broker import make_broker
 from app.data.finnhub import FinnhubClient
 from app.data.scan_data import DailyScanData
@@ -20,14 +23,15 @@ from app.db.store import make_store
 from app.engine.risk import RiskManager, RuntimeRules
 from app.engine.signal_hygiene import expire_reason
 from app.engine.scanner import Scanner
+from app.engine.liquidity import execution_liquidity_reason, recent_activity
 from app.engine.trader import Trader
 from app.models import Candidate, Signal, SignalStatus, WatchItem
 from app.signals.detector import SetupDetector
 
 log = logging.getLogger(__name__)
 
-SCAN_INTERVAL = 300        # re-scan universe every 5 minutes
-BAR_POLL_INTERVAL = 30     # poll 1-min bars every 30 s (setup detection)
+SCAN_INTERVAL = settings.scan_interval_seconds
+BAR_POLL_INTERVAL = settings.bar_poll_interval_seconds
 MARK_INTERVAL = 60         # refresh marks + expire stale signals every minute
 MAX_ACTIVE_SYMBOLS = 12
 
@@ -48,7 +52,18 @@ class Orchestrator:
         self.candidates: dict[str, Candidate] = {}
         self.scan_universe: dict[str, str] = {}
         self.watchlist: dict[str, WatchItem] = {}
-        self._bar_counts: dict[str, int] = {}
+        self._session_dates: dict = {}
+        self._detector_locks: dict[str, asyncio.Lock] = {}
+        self._poll_sem = asyncio.Semaphore(4)
+        self._scan_lock = asyncio.Lock()
+        self._execution_lock = asyncio.Lock()
+        self._analysis: dict[str, tuple[Candidate, dict]] = {}
+        self._analysis_date = datetime.now(ET).date()
+        self._analysis_tasks: dict[str, asyncio.Task] = {}
+        self._analysis_sem = asyncio.Semaphore(2)
+        self.last_scan_at: datetime | None = None
+        self.last_scan_duration_seconds: float | None = None
+        self.last_poll_duration_seconds: float | None = None
         self._chart_init_tasks: dict[str, asyncio.Task] = {}
         self._chart_init_sem = asyncio.Semaphore(4)
         self._tasks: list[asyncio.Task] = []
@@ -69,9 +84,12 @@ class Orchestrator:
         ]
 
     async def stop(self) -> None:
-        for t in self._tasks:
+        tasks = self._tasks + list(self._chart_init_tasks.values()) + list(self._analysis_tasks.values())
+        for t in tasks:
             t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await self.scan_data.close()
+        await self.analyst.close()
         self.broker.disconnect()
 
     # ------------------------------------------------------------------ #
@@ -89,6 +107,13 @@ class Orchestrator:
             await asyncio.sleep(SCAN_INTERVAL)
 
     async def _run_scan(self) -> None:
+        async with self._scan_lock:
+            started = monotonic()
+            await self._scan_once()
+            self.last_scan_at = datetime.now(timezone.utc)
+            self.last_scan_duration_seconds = round(monotonic() - started, 3)
+
+    async def _scan_once(self) -> None:
         self.scan_universe = await self.scanner.filtered_universe(
             self.rules.min_market_cap_floor_usd,
         )
@@ -100,23 +125,24 @@ class Orchestrator:
         for sym in self.detectors:
             ui_symbols.setdefault(sym, self.scan_universe.get(sym, "chart"))
 
-        self.watchlist = {}
+        watchlist = {}
         for sym in self.scanner.rank_universe(ui_symbols):
             catalyst = ui_symbols.get(sym, "news")
             item = await self.scanner.watch_entry(sym, catalyst)
             item.watching = sym in self.detectors
-            self.watchlist[sym] = item
+            watchlist[sym] = item
+        self.watchlist = watchlist
 
         allowed_charts = set(self.scan_universe)
         stale = set(self.detectors) - allowed_charts
         for sym in stale:
             del self.detectors[sym]
-            self._bar_counts.pop(sym, None)
+            self._session_dates.pop(sym, None)
             log.info("Stopped chart feed for %s (filtered out)", sym)
 
         ranked = sorted(
             [w for w in self.watchlist.values() if w.symbol in self.scan_universe],
-            key=lambda w: w.score,
+            key=lambda w: (w.qualified, w.score),
             reverse=True,
         )
         if self.connected:
@@ -142,8 +168,14 @@ class Orchestrator:
                     elif sym in self.watchlist:
                         self.watchlist[sym].watching = True
 
+        # Initial history loads also seed same-time-of-day volume profiles.
+        for sym in list(self.detectors):
+            if sym in self.scan_universe:
+                self.watchlist[sym] = await self.scanner.watch_entry(sym, self.scan_universe[sym])
+                self.watchlist[sym].watching = True
         filtered = await self.scanner.scan(self.scan_universe)
         self.candidates = {c.symbol: c for c in filtered}
+        self._schedule_analysis()
 
         log.info(
             "Scan complete — universe: %d, watching: %d, filtered: %d",
@@ -153,6 +185,13 @@ class Orchestrator:
         )
 
     async def _init_detector(self, symbol: str) -> None:
+        lock = self._detector_locks.setdefault(symbol, asyncio.Lock())
+        async with lock:
+            if symbol in self.detectors and self._session_dates.get(symbol) == datetime.now(ET).date():
+                return
+            await self._load_detector(symbol)
+
+    async def _load_detector(self, symbol: str) -> None:
         async with self._chart_init_sem:
             prior, today = await self.broker.prior_session_bars(symbol)
         det = SetupDetector(symbol, prior_day_bars=prior)
@@ -160,28 +199,84 @@ class Orchestrator:
         for bar in today:
             det.on_bar(bar, cand)  # replay today's history without acting on old signals
         self.detectors[symbol] = det
-        self._bar_counts[symbol] = len(today)
+        self._session_dates[symbol] = datetime.now(ET).date()
         log.info("Watching %s (%d prior bars, %d today)", symbol, len(prior), len(today))
 
     async def _bar_loop(self) -> None:
         while True:
-            await asyncio.sleep(BAR_POLL_INTERVAL)
-            if not self.connected:
-                continue
-            for symbol, det in list(self.detectors.items()):
-                try:
+            started = monotonic()
+            if self.connected:
+                await self._poll_once()
+                self._expire_stale_signals()
+            self.last_poll_duration_seconds = round(monotonic() - started, 3)
+            await asyncio.sleep(max(0.1, BAR_POLL_INTERVAL - (monotonic() - started)))
+
+    async def _poll_once(self) -> None:
+        detectors = list(self.detectors.items())
+        if isinstance(self.broker, AlpacaClient):
+            try:
+                batch = await self.broker.minute_bars_many([sym for sym, _ in detectors])
+            except Exception:
+                log.exception("Batch bar poll failed")
+                return
+            await asyncio.gather(*(self._poll_symbol(sym, det, batch.get(sym, [])) for sym, det in detectors))
+        else:
+            await asyncio.gather(*(self._poll_symbol(sym, det) for sym, det in detectors))
+
+    async def _poll_symbol(self, symbol: str, det: SetupDetector, bars: list | None = None) -> None:
+        try:
+            async with self._poll_sem:
+                if self._session_dates.get(symbol) != datetime.now(ET).date():
+                    await self._init_detector(symbol)
+                    return
+                if bars is None:
                     bars = await self.broker.minute_bars(symbol, days=1)
-                    seen = self._bar_counts.get(symbol, 0)
-                    new = bars[seen:]
-                    if not new:
-                        continue
-                    self._bar_counts[symbol] = len(bars)
-                    cand = self.candidates.get(symbol)
-                    for bar in new:
-                        for sig in det.on_bar(bar, cand):
-                            await self._handle_signal(sig, det)
-                except Exception:
-                    log.exception("Bar loop error for %s", symbol)
+            if self.detectors.get(symbol) is not det:
+                return
+            now = datetime.now(timezone.utc)
+            last_ts = det.bars[-1].ts if det.bars else None
+            new = [b for b in completed_bars(bars, now)
+                   if b.ts.astimezone(ET).date() == now.astimezone(ET).date()
+                   and (last_ts is None or b.ts > last_ts)]
+            cand = self.candidates.get(symbol)
+            for bar in new:
+                signals = det.on_bar(bar, cand)
+                # Catch-up bars rebuild state but are never new trade opportunities.
+                age = (now - (bar.ts + timedelta(minutes=1))).total_seconds()
+                if cand and bar is new[-1] and age <= settings.max_signal_bar_age_seconds:
+                    for sig in signals:
+                        await self._handle_signal(sig, det)
+        except Exception:
+            log.exception("Bar loop error for %s", symbol)
+
+    def _schedule_analysis(self) -> None:
+        today = datetime.now(ET).date()
+        if self._analysis_date != today:
+            self._analysis.clear()
+            self._analysis_date = today
+        for sym, cand in self.candidates.items():
+            cached = self._analysis.get(sym)
+            if (cached and cached[0] == cand) or sym in self._analysis_tasks:
+                continue
+            self._analysis_tasks[sym] = asyncio.create_task(self._prepare_analysis(sym, cand))
+
+    async def _prepare_analysis(self, symbol: str, candidate: Candidate) -> None:
+        day = datetime.now(ET).date()
+        try:
+            async with self._analysis_sem:
+                async def enrich():
+                    enriched = candidate.model_copy(deep=True)
+                    enriched.earnings = await self.scan_data.earnings_for(symbol, candidate.catalyst)
+                    enriched.headlines = await self.scan_data.headlines(symbol)
+                    return await self.analyst.analyze(enriched)
+
+                analysis = await asyncio.wait_for(enrich(), timeout=15)
+                if day == datetime.now(ET).date():
+                    self._analysis[symbol] = (candidate, analysis)
+        except Exception:
+            log.warning("Catalyst analysis unavailable for %s", symbol)
+        finally:
+            self._analysis_tasks.pop(symbol, None)
 
     async def _mark_loop(self) -> None:
         while True:
@@ -214,7 +309,7 @@ class Orchestrator:
                 if item and item.price:
                     price = item.price
 
-            reason = expire_reason(sig, price, now, ttl)
+            reason = self._signal_invalid_reason(sig) or expire_reason(sig, price, now, ttl)
             if reason:
                 sig.status = SignalStatus.EXPIRED
                 self.store.save_signal(sig)
@@ -224,14 +319,22 @@ class Orchestrator:
 
     async def _handle_signal(self, signal: Signal, det: SetupDetector) -> None:
         sym = signal.symbol.upper()
+        if sym not in self.candidates or sym not in self.scan_universe:
+            return
+        if self._signal_invalid_reason(signal):
+            return
         for existing in self.store.pending_signals():
             if existing.symbol.upper() == sym and existing.id != signal.id:
                 existing.status = SignalStatus.EXPIRED
                 self.store.save_signal(existing)
                 log.info("Replaced stale pending signal for %s", sym)
 
-        cand = signal.candidate
-        analysis = await self.analyst.analyze(cand) if cand else {"sentiment": "neutral", "score": 50, "reasons": []}
+        cached = self._analysis.get(sym)
+        analysis_ready = cached is not None and cached[0] == signal.candidate
+        analysis = cached[1] if analysis_ready else {
+            "sentiment": "neutral", "score": 50,
+            "reasons": ["Catalyst analysis pending; neutral placeholder"],
+        }
 
         last_close = det.bars[-1].close
         above_vwap = det.vwap.value is not None and last_close > det.vwap.value
@@ -241,18 +344,66 @@ class Orchestrator:
         signal.breakdown = breakdown
         signal.confidence = breakdown.total
         self.store.save_signal(signal)
-        log.info("SIGNAL %s %s @ %.2f stop %.2f target %.2f — confidence %.0f%%",
+        log.info("SIGNAL %s %s @ %.2f stop %.2f target %.2f — setup score %.0f/100",
                  signal.direction.value, signal.symbol, signal.entry, signal.stop,
                  signal.target, signal.confidence)
 
-        if self.rules.auto_trade_enabled and signal.confidence >= self.rules.auto_trade_threshold:
-            trade, err = await self.trader.execute(signal, auto=True)
+        if (self.rules.auto_trade_enabled
+                and signal.confidence >= self.rules.auto_trade_threshold):
+            async with self._execution_lock:
+                reason = await self._validate_execution(signal)
+                if reason:
+                    return
+                trade, err = await self.trader.execute(signal, auto=True)
             if err:
                 log.warning("Auto-trade failed for %s: %s", signal.symbol, err)
         # otherwise it stays PENDING for manual approval in the dashboard
 
     # ------------------------------------------------------------------ #
     # called from the API layer
+
+    def _signal_invalid_reason(self, sig: Signal) -> str | None:
+        if sig.symbol not in self.scan_universe or sig.symbol not in self.candidates:
+            return "symbol no longer qualifies"
+        det = self.detectors.get(sig.symbol)
+        now = datetime.now(timezone.utc)
+        if settings.morning_only and (
+            not is_morning_setup_window(now) or not is_morning_setup_window(sig.created_at)
+        ):
+            return "outside morning entry windows"
+        if not det or not det.bars:
+            return "no current bars"
+        bar = det.bars[-1]
+        if bar.ts.astimezone(ET).date() != now.astimezone(ET).date():
+            return "previous session data"
+        if (now - (bar.ts + timedelta(minutes=1))).total_seconds() > settings.max_signal_bar_age_seconds:
+            return "market data stale"
+        if (now - sig.created_at).total_seconds() > settings.max_signal_bar_age_seconds:
+            return "setup too old"
+        return expire_reason(sig, bar.close, now, settings.signal_ttl_seconds)
+
+    async def _validate_execution(self, sig: Signal) -> str | None:
+        if sig.status != SignalStatus.PENDING:
+            return f"signal is {sig.status.value}"
+        reason = self._signal_invalid_reason(sig)
+        if not reason:
+            quote = await self.broker.bid_ask(sig.symbol)
+            price = quote.get("ask" if sig.direction.value == "LONG" else "bid") if quote else None
+            reason = self._signal_invalid_reason(sig)
+            if not reason:
+                reason = "no current quote" if not price else expire_reason(
+                    sig, price, datetime.now(timezone.utc), settings.signal_ttl_seconds,
+                )
+            if not reason:
+                now = datetime.now(timezone.utc)
+                activity = recent_activity(self.detectors[sig.symbol].bars, now)
+                reason = execution_liquidity_reason(
+                    {**activity, **quote}, now, self.risk.position_size(sig), sig.risk_per_share,
+                )
+        if reason:
+            sig.status = SignalStatus.EXPIRED
+            self.store.save_signal(sig)
+        return reason
 
     async def approve_signal(self, signal_id: str) -> dict:
         sig = self.store.get_signal(signal_id)
@@ -262,13 +413,11 @@ class Orchestrator:
             return {"ok": False, "error": f"signal is {sig.status.value}"}
         if not self.connected:
             return {"ok": False, "error": "broker not connected"}
-        # signals go stale fast
-        age = (datetime.now(timezone.utc) - sig.created_at).total_seconds()
-        if age > settings.signal_ttl_seconds:
-            sig.status = SignalStatus.EXPIRED
-            self.store.save_signal(sig)
-            return {"ok": False, "error": "signal expired (>10 min old)"}
-        trade, note = await self.trader.execute(sig, auto=False)
+        async with self._execution_lock:
+            reason = await self._validate_execution(sig)
+            if reason:
+                return {"ok": False, "error": reason}
+            trade, note = await self.trader.execute(sig, auto=False)
         if trade:
             return {"ok": True, "trade_id": trade.id, "message": note}
         return {"ok": False, "error": note or "order failed"}
@@ -301,7 +450,7 @@ class Orchestrator:
 
         last = det.bars[-1].close if det.bars else None
         item = self.watchlist.get(sym)
-        if item and item.price:
+        if last is None and item and item.price:
             last = item.price
 
         sig = self.store.get_signal(signal_id) if signal_id else None
@@ -369,7 +518,7 @@ class Orchestrator:
         if sym not in self.scan_universe:
             return None
         catalyst = self.scan_universe.get(sym, "chart")
-        item = await self.scanner.watch_entry(sym, catalyst, with_news=True)
+        item = self.watchlist.get(sym) or await self.scanner.watch_entry(sym, catalyst)
         item.watching = sym in self.detectors
         if sym not in self.detectors and self.connected:
             self.schedule_chart_init(sym)

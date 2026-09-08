@@ -2,7 +2,9 @@ from datetime import date, datetime, timezone
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from app.data.market_hours import is_extended_hours, market_session, trading_date
+import pytest
+
+from app.data.market_hours import is_extended_hours, is_morning_setup_window, market_session, trading_date
 
 ET = ZoneInfo("America/New_York")
 
@@ -36,3 +38,11 @@ def test_trading_date_uses_et():
     with patch("app.data.market_hours.datetime") as m:
         m.now.side_effect = lambda tz=None: fixed.astimezone(tz) if tz else fixed
         assert trading_date() == date(2026, 6, 11)
+
+
+@pytest.mark.parametrize("hour,minute,allowed", [
+    (8, 29, False), (8, 30, True), (9, 14, True), (9, 15, False),
+    (9, 30, False), (9, 35, True), (11, 29, True), (11, 30, False), (14, 0, False),
+])
+def test_morning_entry_windows(hour, minute, allowed):
+    assert is_morning_setup_window(_et(2026, 9, 8, hour, minute)) is allowed

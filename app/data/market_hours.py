@@ -38,3 +38,12 @@ def is_extended_hours(now: datetime | None = None) -> bool:
 
 def is_regular_hours(now: datetime | None = None) -> bool:
     return market_session(now) == "regular"
+
+
+def is_morning_setup_window(now: datetime) -> bool:
+    """Kenny's described entry windows; this does not manage existing positions."""
+    local = now.astimezone(ET)
+    return local.weekday() < 5 and (
+        time(8, 30) <= local.time() < time(9, 15)
+        or time(9, 35) <= local.time() < time(11, 30)
+    )
