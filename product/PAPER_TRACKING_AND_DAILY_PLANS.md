@@ -94,3 +94,10 @@ Supabase journal recovery with no storage error. It recovered three June records
 (SPCE, AVXX, ASTX) with no order IDs. Those cannot supply attributable historical
 P&L; they prompted the explicit UNATTRIBUTED migration above. No open broker orders
 were reported. No synthetic trades were written into production statistics.
+
+Follow-up release 50e7a9b passed deployment checks: paper mode and automation ON,
+Supabase storage healthy, zero unresolved attributed trades, three legacy records
+excluded. Broker inventory confirms ASTX (5 shares), AVXX (7), SPCE (10) remain in
+the paper account, displayed separately and untouched. The live daily research
+page rendered entry, stop and 2R levels. Header risk is explicitly tracked risk,
+not total account risk or a guaranteed maximum loss.
