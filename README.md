@@ -168,3 +168,24 @@ app/
 supabase/schema.sql     signals/trades/watchlist tables
 run.py                  entry point
 ```
+
+## Daily Technicals
+
+Open `/technicals` (also linked from the morning dashboard) for a separate,
+read-only daily chart screener. It includes 1-5 year daily candlesticks, SMA
+20/50/200 overlays, bullish and bearish crosses, price/200 and range breaks,
+earnings markers, an editable scan universe, and explainable 0-100 rankings.
+Anchored VWAP defaults to a confirmed six-month swing high, with swing-low,
+earnings-reaction, YTD and custom-date alternatives. Reclaim/loss signals and
+52-week range breaks join the rankings. The Daily review action builds a top-10
+or top-20 queue with preloaded next charts, saved picks and review progress.
+The score is a review heuristic, not a win probability. This section cannot
+submit trades and does not change the morning VWAP engine.
+
+Uses the existing `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_DATA_FEED`, and
+`FINNHUB_API_KEY` settings. IEX is not consolidated volume. Missing credentials,
+limited earnings coverage and provider errors are shown explicitly. Current-day
+bars are excluded; the chart displays its last included session date.
+
+Research sources, exact scoring weights, limitations and data behavior:
+[Daily Technicals methodology](docs/DAILY_TECHNICALS.md).

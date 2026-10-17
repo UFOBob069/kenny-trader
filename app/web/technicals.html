@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Daily Technicals | Kenny</title>
+  <link rel="stylesheet" href="/static/technicals.css?v=1">
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">Kenny</a>
+    <nav aria-label="Workspace"><a href="/">Morning VWAP</a><a href="/technicals" aria-current="page">Daily Technicals</a></nav>
+    <span class="research-label">RESEARCH ONLY</span>
+  </header>
+  <main>
+    <aside class="scanner">
+      <div class="section-head"><h1>Daily Technicals</h1><button id="rescan" class="icon-button" title="Refresh scan" aria-label="Refresh scan"><i data-lucide="refresh-cw"></i></button></div>
+      <div class="universe-line"><span id="universe-count">Scan universe</span><button id="edit-universe" class="icon-button" title="Edit scan universe" aria-label="Edit scan universe"><i data-lucide="list-filter"></i></button></div>
+      <div class="daily-review-controls"><button id="start-review"><i data-lucide="play"></i>Daily review</button><label class="sr-only" for="review-limit">Review size</label><select id="review-limit"><option value="10">Top 10</option><option value="20">Top 20</option></select><button id="saved-only" class="icon-button" title="Saved picks" aria-label="Saved picks" aria-pressed="false"><i data-lucide="bookmark"></i></button></div>
+      <div class="segmented" id="directions" role="group" aria-label="Signal direction">
+        <button data-direction="all" aria-pressed="true">All</button><button data-direction="bullish" aria-pressed="false">Bullish</button><button data-direction="bearish" aria-pressed="false">Bearish</button>
+      </div>
+      <div class="filters">
+        <label>Signal<select id="signal-filter"><option value="all">All signals</option><option value="avwap">AVWAP reclaim / loss</option><option value="discovery">New high territory</option><option value="price200">Price / 200</option><option value="ma20_50">20 / 50 cross</option><option value="ma20_200">20 / 200 cross</option><option value="ma50_200">50 / 200 cross</option><option value="range">Range break</option></select></label>
+        <label>Min score<input id="min-score" type="number" min="0" max="100" step="5" value="50"></label>
+      </div>
+      <label class="check"><input id="recent-only" type="checkbox" checked> Recent held signals</label>
+      <div id="scan-status" class="status" role="status">Loading universe...</div>
+      <div class="table-head"><span>Symbol / trigger</span><span>Score</span><span>1D</span></div>
+      <div id="rankings" class="rankings" aria-label="Ranked charts"></div>
+      <footer class="scan-footer"><span id="result-count">0 charts</span><span>Heuristic / 100</span></footer>
+    </aside>
+    <section class="review" aria-label="Chart review">
+      <div id="review-session" class="review-session" hidden><span id="review-progress"></span><span id="review-date"></span><button id="review-done" class="icon-button" title="Reviewed and next (D)" aria-label="Reviewed and next"><i data-lucide="check"></i></button><button id="review-save" class="icon-button" title="Save pick and next (S)" aria-label="Save pick and next"><i data-lucide="bookmark-plus"></i></button><button id="review-pass" class="icon-button" title="Pass and next (X)" aria-label="Pass and next"><i data-lucide="skip-forward"></i></button><button id="end-review" class="icon-button" title="Exit review" aria-label="Exit review"><i data-lucide="x"></i></button></div>
+      <div class="chart-toolbar">
+        <form id="symbol-form"><label class="sr-only" for="symbol-input">Ticker symbol</label><input id="symbol-input" placeholder="Ticker" maxlength="8" autocomplete="off" spellcheck="false"><button class="icon-button" title="Load chart" aria-label="Load chart"><i data-lucide="search"></i></button></form>
+        <button id="previous" class="icon-button" title="Previous chart (Left arrow)" aria-label="Previous chart"><i data-lucide="chevron-left"></i></button>
+        <button id="next" class="icon-button" title="Next chart (Right arrow)" aria-label="Next chart"><i data-lucide="chevron-right"></i></button>
+        <button id="save-pick" class="icon-button" title="Save pick" aria-label="Save pick" aria-pressed="false"><i data-lucide="bookmark"></i></button>
+        <span class="interval">1D candles</span>
+        <div id="years" class="segmented" role="group" aria-label="Chart history">
+          <button data-years="1" aria-pressed="true">1Y</button><button data-years="2" aria-pressed="false">2Y</button><button data-years="3" aria-pressed="false">3Y</button><button data-years="4" aria-pressed="false">4Y</button><button data-years="5" aria-pressed="false">5Y</button>
+        </div>
+        <button id="fit-chart" class="icon-button" title="Fit chart" aria-label="Fit chart"><i data-lucide="maximize"></i></button>
+      </div>
+      <div class="quote-line"><h2 id="chart-symbol">Select a chart</h2><strong id="last-price"></strong><span id="day-change"></span><span id="as-of"></span></div>
+      <div class="legend">
+        <label><input type="checkbox" data-average="20" checked><span class="swatch ma20"></span>SMA 20 <b id="ma20-value"></b></label>
+        <label><input type="checkbox" data-average="50" checked><span class="swatch ma50"></span>SMA 50 <b id="ma50-value"></b></label>
+        <label><input type="checkbox" data-average="200" checked><span class="swatch ma200"></span>SMA 200 <b id="ma200-value"></b></label>
+        <label><input id="show-avwap" type="checkbox" checked><span class="swatch avwap-color"></span>AVWAP <b id="avwap-value"></b></label>
+        <label><input id="show-events" type="checkbox" checked>Crosses</label>
+        <label><input id="show-earnings" type="checkbox" checked>Earnings</label>
+      </div>
+      <div class="anchor-toolbar"><label for="anchor-mode">VWAP anchor</label><select id="anchor-mode"><option value="swing_high">6-month swing high</option><option value="swing_low">6-month swing low</option><option value="earnings">Earnings reaction</option><option value="ytd">Year to date</option><option value="custom">Custom date</option></select><input id="anchor-date" type="date" hidden aria-label="VWAP anchor date"><span id="anchor-info"></span></div>
+      <div id="quick-context" class="quick-context"></div>
+      <div class="chart-stage"><div id="daily-chart"></div><div id="chart-state" role="status">Select a ranked chart or enter a ticker.</div><div id="crosshair-info"></div></div>
+      <div class="data-line"><span id="feed-label">Daily history</span><span id="earnings-state">Earnings dates not loaded</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener">Charts by TradingView</a></div>
+      <div class="review-bottom">
+        <section class="score-section"><div class="section-head"><h3>Signal score</h3><strong id="total-score">-- / 100</strong></div><div id="score-context" class="status">No chart selected</div><div id="score-breakdown"></div><ul id="risk-flags"></ul></section>
+        <section class="events-section"><div class="section-head"><h3>Recent signals</h3></div><div id="signal-events"></div><h3 class="earnings-heading">Earnings calendar</h3><div id="earnings-list"></div></section>
+      </div>
+    </section>
+  </main>
+  <dialog id="universe-dialog">
+    <form id="universe-form"><div class="section-head"><h2>Scan universe</h2><button type="button" id="close-universe" class="icon-button" aria-label="Close" title="Close"><i data-lucide="x"></i></button></div>
+      <label for="universe-input">Ticker symbols (up to 100)</label><textarea id="universe-input" rows="7" spellcheck="false"></textarea>
+      <div id="universe-error" role="alert"></div><div class="dialog-actions"><button type="button" id="default-universe">Starter universe</button><button type="submit">Apply &amp; scan</button></div>
+    </form>
+  </dialog>
+  <script src="/static/technicals.js?v=1"></script>
+</body>
+</html>

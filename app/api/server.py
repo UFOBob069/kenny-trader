@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.data.market_hours import is_extended_hours, market_session
 from app.engine.orchestrator import Orchestrator
+from app.api.technicals import router as technicals_router, research
 
 log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -24,9 +25,11 @@ async def lifespan(app: FastAPI):
     await orch.start()
     yield
     await orch.stop()
+    await research.close()
 
 
 app = FastAPI(title="VWAP Event Trading Copilot", lifespan=lifespan)
+app.include_router(technicals_router)
 
 
 # --- signals ----------------------------------------------------------- #
@@ -197,6 +200,11 @@ _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "
 @app.get("/")
 def index():
     return FileResponse(WEB_DIR / "index.html", headers=_NO_CACHE)
+
+
+@app.get("/technicals")
+def daily_technicals():
+    return FileResponse(WEB_DIR / "technicals.html", headers=_NO_CACHE)
 
 
 @app.get("/static/app.js")
