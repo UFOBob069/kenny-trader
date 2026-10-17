@@ -58,6 +58,9 @@ isolation. Estimates are engineering days, ranges rather than commitments.
   thresholds; existing tests do not establish discretionary signal quality.
 - Outcome: distinguish incorrect detection, slow data, stale UI, weak ranking and
   mismatched strategy expectations before choosing a fix.
+- Deployment evidence: October 17's 26 source symbols produced no filtered symbols
+  despite healthy membership. Compare earnings/top-mover intersection coverage
+  against within-universe movers before treating empty scans as no opportunities.
 - Acceptance: assemble a versioned replay set of at least 30 candidate windows over
   at least five sessions, including long/short, rejected and no-setup examples;
   David labels a bounded initial sample; record bar-close/provider-receipt/detection/

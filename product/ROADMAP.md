@@ -1,7 +1,7 @@
 # 30-Day Roadmap
 
 Window: October 18-November 16, 2026, inclusive (30 calendar days).
-Status: implementation authorized after the initial audit; first tranche in validation.
+Status: first tranche deployed and smoke-tested; market-open validation pending.
 Audience: David only. Updated authority: research plus automated paper experiments;
 live execution is excluded. D015 supersedes the original automation exclusion.
 Priority: better morning VWAP setups; retain and improve daily chart review.
@@ -14,7 +14,8 @@ Priority: better morning VWAP setups; retain and improve daily chart review.
   bounded lookup concurrency implemented; market-open validation remains pending.
 - KT-004 partial: pending submissions reserve daily slots; full lifecycle/protection
   work remains open. Paper P&L is explicitly unverified.
-- Next: KT-016 observed setup evidence, then KT-002/003 paper-state reconciliation.
+- Next: KT-016 observed setup evidence, including market-wide movers versus
+  within-universe discovery coverage, then KT-002/003 paper-state reconciliation.
 
 The original weekly sequencing below remains a baseline, with paper-only testing
 now permitted. Statements excluding all automation are superseded only for this
