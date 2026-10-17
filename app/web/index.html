@@ -66,7 +66,15 @@
   .badge.no { background: rgba(126,133,151,.12); color: var(--muted); }
 
   /* Chart theater */
-  .center-col { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .center-col { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+  .paper-results { flex: 0 0 210px; overflow: auto; border-top: 1px solid var(--border); }
+  #tracking-health { padding: 6px 10px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .results-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .results-table th, .results-table td { padding: 6px; text-align: right; border-bottom: 1px solid var(--border); }
+  .results-table th:first-child, .results-table td:first-child { text-align: left; overflow-wrap: anywhere; }
+  .paper-results details { padding: 6px; }
+  .paper-results summary { cursor: pointer; color: var(--blue); }
+  .result-scroll { overflow-x: auto; }
   .chart-theater { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
   .chart-hd { padding: 6px 10px; display: flex; align-items: center; gap: 10px; flex-shrink: 0;
               border-bottom: 1px solid var(--border); font-size: 12px; }
@@ -88,7 +96,7 @@
                  border-top: 1px solid var(--border); flex-shrink: 0; }
   .order-chip { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--bg);
                 border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-  .position-strip { height: 130px; flex-shrink: 0; border-top: 1px solid var(--border); }
+  .position-strip { height: 170px; flex-shrink: 0; border-top: 1px solid var(--border); }
   .position-scroll { display: flex; gap: 8px; padding: 8px; overflow-x: auto; height: 100%; align-items: stretch; }
   .trade-card { min-width: 220px; background: var(--bg); border: 1px solid var(--border);
                 border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -200,9 +208,10 @@
       <div class="order-chips" id="order-chips"></div>
     </div>
     <div class="panel position-strip">
-      <div class="panel-hd">Paper Positions <span title="Order-fill reconciliation is not yet complete">P&amp;L unverified</span></div>
+      <div class="panel-hd">Paper Positions <span title="Unrealized marks are estimates; closed results require broker fills">Fill-tracked / gross P&amp;L</span></div>
       <div class="position-scroll" id="positions"></div>
     </div>
+    <section class="paper-results" aria-label="Paper setup results"><div class="panel-hd">Paper Setup Results</div><div id="tracking-health" role="status"></div><div id="setup-results"></div><details><summary>Closed trade journal</summary><div id="closed-journal"></div></details></section>
   </section>
 
   <aside class="action-rail">

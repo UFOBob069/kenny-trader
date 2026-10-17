@@ -1,4 +1,4 @@
-"""Alpaca Markets client: bars, quotes, bracket orders (paper or live)."""
+"""Alpaca market data and verified paper-only orders."""
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +23,7 @@ from alpaca.trading.enums import AssetClass, AssetExchange, AssetStatus, OrderCl
 from alpaca.trading.requests import (
     GetAssetsRequest,
     GetOrdersRequest,
+    GetOrderByIdRequest,
     LimitOrderRequest,
     StopLossRequest,
     TakeProfitRequest,
@@ -84,6 +85,7 @@ class AlpacaClient:
         self._liquidity_activity: dict[str, dict] = {}
         self.paper_verified = False
         self.scan_errors: dict[str, str] = {}
+        self.account_id: str | None = None
 
     async def connect(self) -> None:
         self.paper_verified = False
@@ -103,6 +105,7 @@ class AlpacaClient:
             settings.alpaca_secret_key,
         )
         account = await asyncio.to_thread(self._trading.get_account)
+        self.account_id = str(account.id)
         self.paper_verified = self._trading._base_url == 'https://paper-api.alpaca.markets'
         mode = "paper"
         log.info("Connected to Alpaca (%s)", mode)
@@ -389,6 +392,7 @@ class AlpacaClient:
         entry: float,
         stop: float,
         target: float,
+        client_order_id: str | None = None,
     ) -> OrderPlacement:
         self._require_paper()
         if not self._trading:
@@ -396,10 +400,10 @@ class AlpacaClient:
 
         if is_extended_hours():
             return await self._place_extended_entry(
-                symbol, direction, quantity, entry, stop, target,
+                symbol, direction, quantity, entry, stop, target, client_order_id,
             )
         return await self._place_regular_bracket(
-            symbol, direction, quantity, entry, stop, target,
+            symbol, direction, quantity, entry, stop, target, client_order_id,
         )
 
     async def _place_regular_bracket(
@@ -410,6 +414,7 @@ class AlpacaClient:
         entry: float,
         stop: float,
         target: float,
+        client_order_id: str | None = None,
     ) -> OrderPlacement:
         self._require_paper()
         side = OrderSide.BUY if direction == Direction.LONG else OrderSide.SELL
@@ -420,6 +425,7 @@ class AlpacaClient:
             time_in_force=TimeInForce.DAY,
             limit_price=round(entry, 2),
             order_class=OrderClass.BRACKET,
+            client_order_id=client_order_id,
             take_profit=TakeProfitRequest(limit_price=round(target, 2)),
             stop_loss=StopLossRequest(stop_price=round(stop, 2)),
         )
@@ -438,6 +444,7 @@ class AlpacaClient:
         entry: float,
         stop: float,
         target: float,
+        client_order_id: str | None = None,
     ) -> OrderPlacement:
         """Extended hours: limit entry only; stop/target attached after fill."""
         self._require_paper()
@@ -449,6 +456,7 @@ class AlpacaClient:
             time_in_force=TimeInForce.DAY,
             limit_price=round(entry, 2),
             extended_hours=True,
+            client_order_id=client_order_id,
         )
         order = await asyncio.to_thread(self._trading.submit_order, request)
         log.info(
@@ -464,11 +472,16 @@ class AlpacaClient:
         quantity: int,
         stop: float,
         target: float,
+        client_order_id: str | None = None,
     ) -> list[str]:
         """OCO stop + take-profit after extended-hours entry fills."""
         self._require_paper()
         if not self._trading:
             raise RuntimeError("Alpaca not connected")
+        if client_order_id:
+            existing = await self.order_by_client_id(client_order_id)
+            if existing:
+                return [existing['id']]
         close_side = OrderSide.SELL if direction == Direction.LONG else OrderSide.BUY
         request = LimitOrderRequest(
             symbol=symbol.upper(),
@@ -476,6 +489,7 @@ class AlpacaClient:
             side=close_side,
             time_in_force=TimeInForce.GTC,
             order_class=OrderClass.OCO,
+            client_order_id=client_order_id,
             take_profit=TakeProfitRequest(limit_price=round(target, 2)),
             stop_loss=StopLossRequest(stop_price=round(stop, 2)),
         )
@@ -515,10 +529,14 @@ class AlpacaClient:
                 trade.pending_exits = False
                 log.warning("Extended entry %s for %s ended as %s", entry_id, trade.symbol, status.value)
 
-    async def close_position(self, symbol: str, direction: Direction, quantity: int) -> str:
+    async def close_position(self, symbol: str, direction: Direction, quantity: int, client_order_id: str | None = None) -> str:
         self._require_paper()
         if not self._trading:
             raise RuntimeError("Alpaca not connected")
+        if client_order_id:
+            existing = await self.order_by_client_id(client_order_id)
+            if existing:
+                return existing['id']
         close_side = OrderSide.SELL if direction == Direction.LONG else OrderSide.BUY
         sym = symbol.upper()
 
@@ -535,6 +553,7 @@ class AlpacaClient:
                 time_in_force=TimeInForce.DAY,
                 limit_price=limit,
                 extended_hours=True,
+                client_order_id=client_order_id,
             )
         else:
             from alpaca.trading.requests import MarketOrderRequest
@@ -543,9 +562,81 @@ class AlpacaClient:
                 qty=quantity,
                 side=close_side,
                 time_in_force=TimeInForce.DAY,
+                client_order_id=client_order_id,
             )
         order = await asyncio.to_thread(self._trading.submit_order, request)
         return str(order.id)
+
+    async def order_by_client_id(self, client_id: str) -> dict | None:
+        self._require_paper()
+        from alpaca.common.exceptions import APIError
+        try:
+            order = await asyncio.to_thread(self._trading.get_order_by_client_id, client_id)
+            return order.model_dump(mode='json')
+        except APIError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+
+    async def trade_orders(self, trade: Trade) -> list[dict]:
+        self._require_paper()
+        if not trade.broker_account_id or trade.broker_account_id != self.account_id:
+            raise ValueError('Legacy or different-account trade; broker attribution unavailable')
+        if not trade.order_ids and trade.client_order_id:
+            entry = await self.order_by_client_id(trade.client_order_id)
+            if entry:
+                trade.order_ids = [entry['id']]
+        if trade.close_client_order_id:
+            close = await self.order_by_client_id(trade.close_client_order_id)
+            if close:
+                trade.close_order_id = close['id']
+        # Recover OCO submissions even if the process died before saving their IDs.
+        if trade.pending_exits:
+            exits = await self.order_by_client_id('kt-' + trade.id + '-exits')
+            if exits:
+                if exits['id'] not in trade.order_ids:
+                    trade.order_ids.append(exits['id'])
+                trade.pending_exits = False
+        ids = list(dict.fromkeys([*trade.order_ids, *trade.orders, *([trade.close_order_id] if trade.close_order_id else [])]))
+        result = {}
+
+        def flatten(order):
+            row = order.model_dump(mode='json') if hasattr(order, 'model_dump') else order
+            if row.get('replaced_by') or row.get('replaces'):
+                raise ValueError('Order replaced outside app; reconciliation requires review')
+            result[row['id']] = {k: row.get(k) for k in ('id', 'symbol', 'side', 'type', 'status', 'filled_qty', 'filled_avg_price', 'filled_at', 'updated_at')}
+            for child in row.get('legs') or []:
+                flatten(child)
+
+        for order_id in ids:
+            order = await asyncio.to_thread(self._trading.get_order_by_id, order_id, filter=GetOrderByIdRequest(nested=True))
+            flatten(order)
+        return list(result.values())
+
+    async def position_quantity(self, symbol: str) -> float:
+        self._require_paper()
+        positions = await asyncio.to_thread(self._trading.get_all_positions)
+        return next((float(p.qty) for p in positions if p.symbol == symbol), 0.0)
+
+    async def assert_symbol_clear(self, symbol: str) -> None:
+        if await self.position_quantity(symbol):
+            raise ValueError('Broker already has a position in this symbol')
+        orders = await asyncio.to_thread(self._trading.get_orders, filter=GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol]))
+        if orders:
+            raise ValueError('Broker already has an open order in this symbol')
+
+    async def cancel_trade_orders(self, orders: list[dict]) -> None:
+        self._require_paper()
+        from app.engine.reconciliation import TERMINAL
+        for order in orders:
+            if order['status'] not in TERMINAL:
+                try:
+                    await asyncio.to_thread(self._trading.cancel_order_by_id, order['id'])
+                except Exception:
+                    # A fill/cancel race is resolved by a fresh snapshot, never assumed away.
+                    latest = await asyncio.to_thread(self._trading.get_order_by_id, order['id'])
+                    if latest.status.value not in TERMINAL:
+                        raise
 
     async def list_open_orders(self) -> list[dict]:
         if not self._trading:

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Supabase
     supabase_url: str = ""
     supabase_key: str = ""
+    state_db_path: str = "data/paper.sqlite3"
 
     # Trading rules (runtime-editable via the dashboard; these are startup defaults)
     auto_trade_enabled: bool = True  # Paper-only experiment; research mode always overrides this.

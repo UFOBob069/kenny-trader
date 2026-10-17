@@ -76,10 +76,13 @@ def trades():
     open_trades = orch.store.open_trades()
     return {
         "open": [
-            {**t.model_dump(), "unrealized_pnl": round(t.unrealized_pnl, 2)}
+            {**t.model_dump(exclude={'broker_account_id', 'signal_snapshot', 'orders'}), "unrealized_pnl": round(t.unrealized_pnl, 2),
+             "remaining_quantity": t.remaining_quantity, "realized_r": t.realized_r}
             for t in open_trades
         ],
-        "closed": [t.model_dump() for t in orch.store.closed_trades()][-50:],
+        "closed": [{**t.model_dump(exclude={'broker_account_id', 'signal_snapshot', 'orders'}), 'realized_r': t.realized_r}
+                   for t in sorted(orch.store.closed_trades(), key=lambda t: t.closed_at, reverse=True)[:50]],
+        "performance": orch.store.performance(),
     }
 
 
@@ -94,6 +97,11 @@ async def close_trade(trade_id: str):
 @app.get("/api/pnl")
 def pnl():
     return orch.store.pnl_summary()
+
+
+@app.get('/api/performance')
+def performance():
+    return orch.store.performance()
 
 
 @app.get("/api/settings")
@@ -154,11 +162,17 @@ def status():
         can, reason = False, "Research-only mode"
     elif not orch.connected or not verified:
         can, reason = False, "Paper account is not connected and verified"
+    elif orch.store.storage_error:
+        can, reason = False, orch.store.storage_error
+    elif any(t.reconciliation_error for t in orch.store.open_trades()):
+        can, reason = False, "Paper reconciliation requires attention"
     return {
         "execution_mode": settings.execution_mode,
         "live_trading_allowed": False,
         "paper_verified": verified,
-        "pnl_verified": False,
+        "pnl_verified": not any(t.reconciliation_error for t in orch.store.open_trades()) and not orch.store.storage_error,
+        "pnl_basis": "Broker-confirmed closed paper fills, gross of fees",
+        "tracking": orch.store.performance(),
         "broker_connected": orch.connected,
         "broker": settings.broker,
         "market_session": market_session(),

@@ -1,5 +1,19 @@
 # VWAP Event Trading Copilot
 
+## Paper Results and Daily Plans
+
+Paper Setup Results now uses broker-confirmed closed fills, grouped by setup,
+direction and strategy version. Unfilled orders and legacy estimated P&L are
+excluded. Daily Technicals adds research-only entry, stop-loss and 2R levels,
+including explicit wait/unavailable states. These plans do not submit orders.
+
+Trade history restores from Supabase's existing settings JSONB journal or local
+SQLite (`STATE_DB_PATH=data/paper.sqlite3`). Railway needs Supabase or a mounted
+volume with STATE_DB_PATH under RAILWAY_VOLUME_MOUNT_PATH; otherwise new paper
+entries are blocked. Run one worker/replica. See the authoritative
+[tracking/plan contract](product/PAPER_TRACKING_AND_DAILY_PLANS.md) for accounting,
+storage, execution risks and remaining limits; older descriptions below may predate it.
+
 ## Current Authority: Paper Only
 
 Live execution is disabled in this release. Alpaca's paper endpoint is selected

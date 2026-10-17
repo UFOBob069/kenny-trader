@@ -30,7 +30,10 @@ const base = process.env.PREVIEW_URL || 'http://127.0.0.1:8013';
     if (url.pathname === '/api/status') data = status();
     if (url.pathname === '/api/watchlist') data = [];
     if (url.pathname === '/api/signals') data = {pending:paused ? [] : [signal],recent:[]};
-    if (url.pathname === '/api/trades') data = {open:[],closed:[]};
+    if (url.pathname === '/api/trades') data = {open:[{id:'tracked',symbol:'AAPL',direction:'LONG',status:'PENDING',
+      quantity:10,filled_quantity:0,remaining_quantity:0,entry:100,stop:99,target:102}],closed:[],performance:{
+      verified_closed:4,pending:1,canceled:2,excluded:1,unresolved:0,persistence:'sqlite',groups:[{
+        setup:'FAUX_SHOW_BRO',direction:'LONG',version:'morning-v1',trades:4,win_rate:50,average_r:.4,expectancy:4,pnl:16,sample_label:'Small sample'}]}};
     if (url.pathname === '/api/orders') data = {open:[]};
     if (url.pathname === '/api/settings') data = {auto_trade_threshold:90,max_trades_per_day:2,max_daily_loss:100,risk_per_trade:25,max_position_size:1000};
     return route.fulfill({json:data});
@@ -41,6 +44,9 @@ const base = process.env.PREVIEW_URL || 'http://127.0.0.1:8013';
   assert.equal(await page.locator('#auto-pill').innerText(),'PAPER AUTO ON');
   assert.equal(await page.getByRole('button',{name:'Paper Buy',exact:true}).count(),1);
   assert.match(await page.locator('#scan-health').innerText(),/IWB proxy 2026-10-15/);
+  assert.match(await page.locator('#tracking-health').innerText(),/4 verified closed/);
+  assert.match(await page.locator('#setup-results').innerText(),/Small sample/);
+  assert.match(await page.locator('#positions').innerText(),/0\/10 filled/);
   await page.screenshot({path:path.join(process.env.TEMP,'kenny-technicals-qa','morning-paper-mode.png'),fullPage:true});
   mode = 'research';
   await page.evaluate(async()=>{await refreshCommandBar();await refreshSignals();});

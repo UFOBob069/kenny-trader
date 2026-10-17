@@ -452,9 +452,13 @@ function tradeProgress(t) {
   return Math.max(0, Math.min(100, p * 100));
 }
 
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 function riskRemaining(t) {
   const cur = t.current_price ?? t.entry;
-  return Math.abs(cur - t.stop) * t.quantity;
+  return Math.abs(cur - t.stop) * (t.remaining_quantity ?? 0);
 }
 
 function renderPositions(open) {
@@ -467,16 +471,16 @@ function renderPositions(open) {
     const pnl = t.unrealized_pnl ?? 0;
     const prog = tradeProgress(t);
     const risk = riskRemaining(t);
-    const pending = t.pending_exits ? ' · entry pending' : '';
+    const pending = ` · ${t.status}`;
     return `<div class="trade-card">
       <div class="head">
-        <span>${t.symbol} ${t.direction}${pending}</span>
-        <span class="pnl ${pnlClass(pnl)}">${fmtMoney(pnl)}</span>
+        <span>${esc(t.symbol)} ${esc(t.direction)}${esc(pending)}</span>
+        <span class="pnl ${pnlClass(pnl)}">${t.reconciliation_error ? 'Unverified' : fmtMoney(pnl)}</span>
       </div>
-      <div class="trade-meta">${t.quantity} sh · entry $${t.entry} → $${t.current_price ?? '—'}</div>
+      <div class="trade-meta">${t.filled_quantity ?? 0}/${t.quantity} filled · ${t.remaining_quantity ?? 0} remaining · avg $${t.entry_fill_price ?? '—'}</div>
       <div class="prog-bar"><div class="prog-fill" style="width:${prog.toFixed(0)}%"></div></div>
-      <div class="trade-meta">${prog.toFixed(0)}% to target · risk $${risk.toFixed(0)}</div>
-      <button class="closebtn" onclick="closeTrade('${t.id}')">Close</button>
+      <div class="trade-meta">${esc(t.reconciliation_error || t.protection_warning || `Marked risk $${risk.toFixed(0)}`)}</div>
+      <button class="closebtn" onclick="closeTrade('${t.id}')" ${t.close_order_id ? 'disabled' : ''}>${t.close_order_id ? 'Close pending' : t.filled_quantity ? 'Close paper trade' : 'Cancel entry'}</button>
     </div>`;
   }).join('');
 }
@@ -489,6 +493,14 @@ async function refreshOrders() {
 async function refreshTrades() {
   const d = await j('/api/trades');
   renderPositions(d.open || []);
+  renderPerformance(d.performance || {}, d.closed || []);
+}
+
+function renderPerformance(perf, closed) {
+  document.getElementById('tracking-health').textContent = perf.storage_error || `${perf.verified_closed || 0} verified closed · ${perf.pending || 0} pending · ${perf.canceled || 0} unfilled/canceled · ${perf.excluded || 0} legacy excluded · ${perf.unresolved || 0} unresolved · ${perf.persistence || 'unknown'} journal`;
+  const rows = (perf.groups || []).map(g => `<tr><td>${esc(g.setup)}<br>${esc(g.direction)} / ${esc(g.version)}<br><small>${esc(g.sample_label)}</small></td><td>${g.trades}</td><td>${g.win_rate}%</td><td>${g.average_r ?? '—'}R</td><td>${fmtMoney(g.expectancy)}</td><td>${fmtMoney(g.pnl)}</td></tr>`).join('');
+  document.getElementById('setup-results').innerHTML = rows ? `<div class="result-scroll"><table class="results-table"><thead><tr><th>Setup</th><th>Closed</th><th>Win %</th><th>Avg R</th><th>Avg P&amp;L</th><th>Gross P&amp;L</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">No broker-verified closed trades yet.</div>';
+  document.getElementById('closed-journal').innerHTML = `<div class="result-scroll"><table class="results-table"><thead><tr><th>Symbol / closed</th><th>Setup</th><th>Fill / exit</th><th>Exit reason</th><th>Gross P&amp;L</th><th>R</th></tr></thead><tbody>${closed.map(t => `<tr><td>${esc(t.symbol)}<br>${esc(t.closed_at)}</td><td>${esc(t.setup)}</td><td>$${t.entry_fill_price} / $${t.exit_price}</td><td>${esc(t.exit_reason)}</td><td>${fmtMoney(t.realized_pnl)}</td><td>${t.realized_r ?? '—'}</td></tr>`).join('')}</tbody></table></div>`;
 }
 
 /* ── Settings ──────────────────────────────────────────── */
@@ -538,7 +550,10 @@ async function ignore(id) {
 window.ignore = ignore;
 
 async function closeTrade(id) {
-  await j(`/api/trades/${id}/close`, { method: 'POST' });
+  try {
+    const res = await j(`/api/trades/${id}/close`, { method: 'POST' });
+    toast(res.ok ? res.message : res.error, res.ok);
+  } catch (error) { toast(error.message, false); }
   refreshAll();
 }
 window.closeTrade = closeTrade;

@@ -79,6 +79,7 @@ class Orchestrator:
         try:
             await self.broker.connect()
             self.connected = True
+            await self.trader.refresh_marks()
         except Exception:
             log.exception("Broker connection failed — running in signal-only mode (no data, no orders)")
         self._tasks = [
@@ -549,20 +550,26 @@ class Orchestrator:
         trade = self.store.get_trade(trade_id)
         if not trade:
             return {"ok": False, "error": "trade not found"}
-        await self.trader.close(trade)
-        return {"ok": True, "realized_pnl": trade.realized_pnl}
+        try:
+            await self.trader.close(trade)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc) if isinstance(exc, ValueError) else "Broker close not confirmed; inspect paper orders before retrying"}
+        return {"ok": True, "status": trade.status, "realized_pnl": trade.realized_pnl,
+                "message": "Paper close requested; P&L updates only from broker fills"}
 
     def _markers(self, symbol: str) -> list[dict]:
         markers = []
         for t in self.store.trades.values():
             if t.symbol != symbol:
                 continue
+            if not t.filled_quantity or not t.entry_fill_price:
+                continue
             markers.append({
-                "time": int(t.opened_at.timestamp()),
+                "time": int((t.first_fill_at or t.opened_at).timestamp()),
                 "position": "belowBar" if t.direction.value == "LONG" else "aboveBar",
                 "shape": "arrowUp" if t.direction.value == "LONG" else "arrowDown",
                 "color": "#26a69a" if t.direction.value == "LONG" else "#ef5350",
-                "text": f"{t.direction.value} {t.quantity} @ {t.entry}",
+                "text": f"{t.direction.value} {t.filled_quantity} @ {t.entry_fill_price}",
             })
             if t.closed_at:
                 markers.append({

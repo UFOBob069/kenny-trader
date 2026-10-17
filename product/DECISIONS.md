@@ -1,5 +1,14 @@
 # Product Decision Log
 
+## D018: Broker Fills Define Paper Outcomes; Daily Plans Stay Research
+
+Date: 2026-10-17. David requested tracking to identify working setups and daily
+trade suggestions with stops. Use durable intent plus confirmed broker fills;
+exclude old estimates and unfilled orders from results. Group by setup, direction
+and version, with sample sizes and gross-of-fees P&L. Daily plans are versioned
+ATR/structure hypotheses with entry, stop, 2R objective and wait/unavailable states,
+not daily order automation. [Implementation contract](PAPER_TRACKING_AND_DAILY_PLANS.md).
+
 Append decisions; supersede explicitly rather than deleting prior rationale.
 "Confirmed" means directly requested/answered by David. "Proposed" means a product
 recommendation awaiting development authorization, not a production setting.

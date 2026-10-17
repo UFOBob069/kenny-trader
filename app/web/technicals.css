@@ -104,3 +104,10 @@ body.reviewing .chart-stage { height:clamp(360px,62vh,800px); }
 @media(max-width:1000px) { main { grid-template-columns:280px minmax(0,1fr); }.review-bottom { grid-template-columns:1fr; }.score-section { border-right:0; border-bottom:1px solid var(--line); }.interval { display:none; } }
 @media(max-width:700px) { .topbar { padding:8px 12px; gap:18px; } nav { gap:16px; font-size:12px; }.research-label { display:none; } main { display:flex; flex-direction:column; }.scanner { height:auto; min-height:0; position:static; border-right:0; border-bottom:1px solid var(--line); }.rankings { max-height:240px; min-height:100px; }.section-head { padding-top:12px; }.chart-toolbar { padding:10px; }.quote-line,.legend { padding-inline:12px; } #years { margin-left:0; }.chart-stage { height:400px; } .data-line { padding-inline:12px; } #as-of { width:100%; margin:0; }.review-bottom { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:700px) { body.reviewing .scanner .filters,body.reviewing .scanner .check,body.reviewing #directions,body.reviewing .rankings,body.reviewing .table-head,body.reviewing .universe-line,body.reviewing #scan-status { display:none; } body.reviewing .chart-stage { height:400px; }.anchor-toolbar,.quick-context { padding-inline:12px; }.review-session { padding-inline:12px; } }
+/* Trade levels use fixed grid tracks without changing the chart dimensions. */
+.trade-plan { padding: 14px 20px; border-top: 1px solid #30343c; }
+.plan-levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 10px 0; }
+.plan-levels span { display: block; font-size: 11px; color: #a8adb6; }
+.plan-levels strong { font-size: 17px; overflow-wrap: anywhere; }
+.plan-notes { margin: 8px 0; padding-left: 18px; color: #a8adb6; font-size: 12px; line-height: 1.6; }
+@media (max-width: 600px) { .plan-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } .trade-plan { padding: 12px; } }

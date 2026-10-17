@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import date
+from datetime import datetime
+from app.data.market_hours import ET
 
 from app.models import Signal
 from app.engine.execution_policy import paper_execution_allowed
@@ -63,13 +64,13 @@ class RuntimeRules:
 class RiskManager:
     def __init__(self, rules: RuntimeRules) -> None:
         self.rules = rules
-        self._day = date.today()
+        self._day = datetime.now(ET).date()
         self.trades_today = 0
         self.realized_pnl_today = 0.0
 
     def _roll_day(self) -> None:
-        if date.today() != self._day:
-            self._day = date.today()
+        if datetime.now(ET).date() != self._day:
+            self._day = datetime.now(ET).date()
             self.trades_today = 0
             self.realized_pnl_today = 0.0
 

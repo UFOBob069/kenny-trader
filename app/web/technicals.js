@@ -9,6 +9,24 @@ const state = {items:[], visible:[], universe:[], defaults:[], symbol:'', years:
 let chart, candles, volume, earningsSeries, avwapSeries;
 const averages = {};
 const chartCache = new Map();
+let planLines = [];
+
+function renderTradePlan(plan) {
+  planLines.forEach(line => candles?.removePriceLine(line));
+  planLines = [];
+  $('plan-status').textContent = plan ? `${plan.direction || ''} / ${plan.status}` : 'No plan available';
+  if (!plan) { $('trade-plan').textContent = ''; return; }
+  const levels = plan.entry ? `<div class="plan-levels"><div><span>Entry trigger</span><strong>$${price(plan.entry)}</strong></div><div><span>Stop loss</span><strong class="negative">$${price(plan.stop)}</strong></div><div><span>2R objective</span><strong>$${price(plan.target)}</strong></div><div><span>Risk / share</span><strong>$${price(plan.risk_per_share)}</strong><span>${plan.risk_pct}% / ${plan.reward_risk}R</span></div></div>` : '';
+  const notes = [...(plan.reasons || []), plan.entry_rule, plan.stop_rule, plan.target_rule,
+    plan.nearby_level ? `Nearby price structure $${price(plan.nearby_level)} (${plan.room_r}R away).` : '',
+    plan.validity, ...(plan.warnings || [])].filter(Boolean);
+  $('trade-plan').innerHTML = levels + `<ul class="plan-notes">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`;
+  if (candles && plan.entry) {
+    for (const [key, title, color] of [['entry','Plan entry','#7ab9ee'],['stop','Plan stop','#f47b7d'],['target','2R objective','#54c8a0']]) {
+      planLines.push(candles.createPriceLine({price:plan[key],color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title}));
+    }
+  }
+}
 
 function saved(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -226,6 +244,7 @@ function fitChart() {
 }
 
 function renderSummary(data) {
+  renderTradePlan(data.trade_plan);
   const summary = data.summary;
   $('chart-symbol').textContent = data.symbol;
   $('last-price').textContent = `$${price(summary.close)}`;
@@ -269,6 +288,7 @@ async function selectSymbol(symbol) {
   const {signal} = state.controller;
   state.symbol = symbol;
   state.chartData = null;
+  renderTradePlan(null);
   state.earnings = [];
   $('symbol-input').value = symbol;
   $('chart-symbol').textContent = symbol;

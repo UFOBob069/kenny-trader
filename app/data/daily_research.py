@@ -13,6 +13,7 @@ import httpx
 
 from app.config import settings
 from app.engine.technicals import analyze, chart_payload
+from app.engine.trade_plan import daily_trade_plan
 
 ET = ZoneInfo('America/New_York')
 DEFAULT_SYMBOLS = 'AAPL MSFT NVDA AMZN GOOGL META TSLA AVGO AMD INTC QCOM MU ARM SMCI PLTR ORCL CRM ADBE NOW SHOP UBER NFLX DIS JPM BAC GS MS V MA PYPL COIN HOOD XOM CVX COP SLB CAT DE GE BA LMT COST WMT TGT HD LOW NKE SBUX MCD LLY UNH JNJ ABBV MRK PFE AMGN GILD NEM FCX F GM SOFI'.split()
@@ -208,5 +209,5 @@ class DailyResearch:
         payload = await asyncio.to_thread(chart_payload, bars, years, today, anchor, anchor_date, past_earnings)
         if anchor == 'earnings':
             payload['avwap']['calendar_status'] = past['status']
-        return dict(**payload, summary=summary, symbol=symbol, years=years,
+        return dict(**payload, summary=summary, trade_plan=daily_trade_plan(summary, bars, today), symbol=symbol, years=years,
                     feed=settings.alpaca_data_feed, adjustment='split', interval='1D')

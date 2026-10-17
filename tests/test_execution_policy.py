@@ -42,7 +42,7 @@ async def test_legacy_live_flag_cannot_select_live_transport(monkeypatch):
     monkeypatch.setattr(settings, 'alpaca_api_key', 'test')
     monkeypatch.setattr(settings, 'alpaca_secret_key', 'test')
     trading = Mock(_base_url='https://paper-api.alpaca.markets')
-    trading.get_account.return_value = SimpleNamespace(equity='100', cash='100', buying_power='100', portfolio_value='100')
+    trading.get_account.return_value = SimpleNamespace(id='paper-account', equity='100', cash='100', buying_power='100', portfolio_value='100')
     factory = Mock(return_value=trading)
     monkeypatch.setattr('app.data.alpaca.TradingClient', factory)
     client = AlpacaClient()
@@ -118,20 +118,22 @@ async def test_pending_entries_reserve_slots_and_fills_do_not_count_twice():
     rules.max_trades_per_day = 2
     risk = RiskManager(rules)
     broker = Mock()
+    broker.account_id = 'paper-account'
+    broker.assert_symbol_clear = AsyncMock()
+    broker.position_quantity = AsyncMock(return_value=0)
+    async def snapshots(trade):
+        return [dict(id='entry', symbol=trade.symbol, side='buy', type='limit', status='new',
+                     filled_qty=0, filled_avg_price=None, filled_at=None)]
+    broker.trade_orders = AsyncMock(side_effect=snapshots)
     broker.place_bracket = AsyncMock(return_value=OrderPlacement(['entry'], pending_exits=True))
     store = MemoryStore()
     trader = Trader(broker, store, risk)
-    for _ in range(3):
-        sig = Signal(symbol='TEST', direction=Direction.LONG, setup=SetupType.FAUX_SHOW_BRO,
+    for symbol in ['AAA', 'BBB', 'CCC']:
+        sig = Signal(symbol=symbol, direction=Direction.LONG, setup=SetupType.FAUX_SHOW_BRO,
                      entry=10, stop=9, target=12)
         await trader.execute(sig, auto=True)
     assert broker.place_bracket.await_count == 2
     assert risk.trades_today == 2
 
-    async def filled(trades):
-        for trade in trades:
-            trade.pending_exits = False
-            trade.order_ids.append('exit')
-    broker.sync_pending_exits = AsyncMock(side_effect=filled)
     await trader.refresh_marks()
     assert risk.trades_today == 2

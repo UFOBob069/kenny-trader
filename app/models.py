@@ -105,8 +105,12 @@ class Signal(BaseModel):
 
 
 class TradeStatus(str, Enum):
+    SUBMITTING = "SUBMITTING"
+    PENDING = "PENDING"
     OPEN = "OPEN"
+    CLOSING = "CLOSING"
     CLOSED = "CLOSED"
+    CANCELED = "CANCELED"
 
 
 class Trade(BaseModel):
@@ -127,10 +131,37 @@ class Trade(BaseModel):
     realized_pnl: Optional[float] = None
     order_ids: list[str] = Field(default_factory=list)
     pending_exits: bool = False  # waiting for extended-hours entry fill before stop/target
+    setup: str = "UNKNOWN"
+    strategy_version: str = "legacy"
+    signal_snapshot: dict = Field(default_factory=dict)
+    broker_account_id: str | None = None
+    client_order_id: str | None = None
+    close_client_order_id: str | None = None
+    close_order_id: str | None = None
+    close_requested: bool = False
+    filled_quantity: float = 0
+    exited_quantity: float = 0
+    entry_fill_price: float | None = None
+    first_fill_at: datetime | None = None
+    orders: dict[str, dict] = Field(default_factory=dict)
+    reconciled_at: datetime | None = None
+    reconciliation_error: str | None = "Awaiting broker reconciliation"
+    pnl_verified: bool = False
+    exit_reason: str | None = None
+    protection_warning: str | None = None
+
+    @property
+    def remaining_quantity(self) -> float:
+        return max(0, self.filled_quantity - self.exited_quantity)
+
+    @property
+    def realized_r(self) -> float | None:
+        risk = abs(self.entry - self.stop) * self.filled_quantity
+        return round(self.realized_pnl / risk, 3) if self.pnl_verified and risk and self.realized_pnl is not None else None
 
     @property
     def unrealized_pnl(self) -> float:
-        if self.current_price is None or self.status != TradeStatus.OPEN:
+        if self.current_price is None or self.entry_fill_price is None or self.reconciliation_error:
             return 0.0
         sign = 1 if self.direction == Direction.LONG else -1
-        return sign * (self.current_price - self.entry) * self.quantity
+        return sign * (self.current_price - self.entry_fill_price) * self.remaining_quantity

@@ -6,6 +6,10 @@ execution remains out of scope. Original acceptance criteria below remain record
 
 ## Delivery Status Override
 
+Second tranche: KT-002/003 now have fill accounting, restored journal state and
+single-process submission/close idempotency. Daily plans added at David's request.
+Remaining limits: [tracking and plan contract](PAPER_TRACKING_AND_DAILY_PLANS.md).
+
 | Item | Current state | Still required |
 | --- | --- | --- |
 | KT-001 | Partial: hard paper transport, research-mode API/engine/adapter guards, IBKR orders blocked | Authentication, privacy and deployment-level credential isolation |

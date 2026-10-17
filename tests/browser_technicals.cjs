@@ -41,7 +41,11 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     value:points.at(-1).value,distance_pct:2.5,slope:'rising',state:'Above anchored average',points};
   summary.avwap = {...avwap,points:undefined};
   summary.discovery = {state:'Inside prior range',above_52w:false,above_history:false,high_52w:180};
-  return {symbol,years,bars:visible,averages,events:[event],summary,avwap,feed:'sip',adjustment:'split',interval:'1D'};
+  const entry = summary.close + (direction === 'bullish' ? 1 : -1);
+  const trade_plan = {status:'conditional',direction,entry,stop:entry+(direction === 'bullish' ? -4 : 4),
+    target:entry+(direction === 'bullish' ? 8 : -8),risk_per_share:4,risk_pct:2.5,reward_risk:2,
+    reasons:[],warnings:['Research plan; no order submitted.'],entry_rule:'Next-session breakout trigger',stop_rule:'Five-session structure plus ATR buffer',target_rule:'2R planning objective'};
+  return {symbol,years,bars:visible,averages,events:[event],summary,avwap,trade_plan,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
 (async () => {
@@ -83,6 +87,9 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   });
   await page.reload();
   await page.waitForFunction(()=>document.querySelector('#earnings-state').textContent.includes('3 dates'));
+  assert.match(await page.locator('#trade-plan').innerText(),/Stop loss/);
+  assert.match(await page.locator('#trade-plan').innerText(),/2R objective/);
+  assert.match(await page.locator('#plan-status').innerText(),/conditional/);
   assert.equal(await page.locator('.rank-row').count(),3);
   assert.equal(await page.locator('#chart-state').isVisible(),false);
   assert(await page.evaluate(() => chart.timeScale().timeToCoordinate('2025-02-20') > chart.timeScale().timeToCoordinate('2025-01-17')),'Future earnings must be after the last real candle');
