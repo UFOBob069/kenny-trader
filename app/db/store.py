@@ -48,8 +48,15 @@ class MemoryStore:
     def get_trade(self, trade_id: str) -> Trade | None:
         return self.trades.get(trade_id)
 
+    def quarantine_legacy(self):
+        for trade in self.trades.values():
+            if trade.strategy_version == 'legacy' and not trade.order_ids and not trade.client_order_id and trade.status == TradeStatus.OPEN:
+                trade.status = TradeStatus.UNATTRIBUTED
+                trade.reconciliation_error = 'Historical record lacks broker order IDs; outcome unknown, excluded from results'
+                trade.pnl_verified = False
+
     def open_trades(self) -> list[Trade]:
-        return [t for t in self.trades.values() if t.status not in (TradeStatus.CLOSED, TradeStatus.CANCELED)]
+        return [t for t in self.trades.values() if t.status not in (TradeStatus.CLOSED, TradeStatus.CANCELED, TradeStatus.UNATTRIBUTED)]
 
     def closed_trades(self, since: datetime | None = None) -> list[Trade]:
         out = [t for t in self.trades.values() if t.status == TradeStatus.CLOSED and t.pnl_verified]
@@ -104,7 +111,8 @@ class MemoryStore:
                              sample_label='Small sample' if len(trades) < 30 else 'Descriptive, not proof of edge'))
         return dict(groups=sorted(rows, key=lambda r: r['pnl'], reverse=True),
                     verified_closed=len(self.closed_trades()),
-                    excluded=sum(t.status == TradeStatus.CLOSED and not t.pnl_verified for t in self.trades.values()),
+                    excluded=sum((t.status == TradeStatus.CLOSED and not t.pnl_verified) or t.status == TradeStatus.UNATTRIBUTED for t in self.trades.values()),
+                    unattributed=sum(t.status == TradeStatus.UNATTRIBUTED for t in self.trades.values()),
                     pending=sum(t.status in (TradeStatus.PENDING, TradeStatus.SUBMITTING) for t in self.trades.values()),
                     canceled=sum(t.status == TradeStatus.CANCELED for t in self.trades.values()),
                     unresolved=sum(bool(t.reconciliation_error) for t in self.open_trades()),
@@ -161,6 +169,8 @@ class SupabaseStore(MemoryStore):
             if len(rows) < 500:
                 break
             offset += 500
+
+        self.quarantine_legacy()
 
     def _journal(self, key, value):
         try:
@@ -237,6 +247,8 @@ class SQLiteStore(MemoryStore):
             elif key.startswith('signal.'):
                 signal = Signal.model_validate_json(value)
                 self.signals[signal.id] = signal
+
+        self.quarantine_legacy()
 
     def _journal(self, key, model):
         try:

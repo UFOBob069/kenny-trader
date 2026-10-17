@@ -33,7 +33,11 @@ stops. Morning paper automation remains permitted; daily plans never submit orde
 Supabase uses the existing `settings(key,value,updated_at)` JSONB table for full
 `paper.trade.<id>` and `paper.signal.<id>` records. Startup reads are paginated and
 journal write failures block new submissions. Legacy rows are retained but their
-estimated P&L is excluded. Legacy open trades without order IDs require review.
+estimated P&L is excluded. Legacy open records without order IDs are quarantined
+as UNATTRIBUTED, not marked closed or profitable. They remain visible and cannot
+authorize closes. Broker positions outside the journal are shown separately for
+management in Alpaca. Every new entry checks actual broker positions/open orders
+before taking ownership of a symbol.
 
 Without Supabase, SQLite uses `STATE_DB_PATH` (default `data/paper.sqlite3`). Local
 restarts retain it. On Railway the path MUST be under `RAILWAY_VOLUME_MOUNT_PATH`,
@@ -73,7 +77,7 @@ Sources: [Fidelity ATR](https://www.fidelity.com/learning-center/trading-investi
 
 ## Validation and Limits
 
-186 Python tests, seven JavaScript tests and both fixture-backed browser suites
+189 Python tests, seven JavaScript tests and both fixture-backed browser suites
 passed. Coverage includes fill arithmetic, partial fills, cancellation races,
 duplicate closes, restart recovery, broker outages, chart pixels, plan levels and
 desktop/mobile daily layouts. No broker test order was submitted.
@@ -81,4 +85,12 @@ desktop/mobile daily layouts. No broker test order was submitted.
 Still open: market-session evidence, fees/activity ledger, cross-process locking,
 full partial-fill/extended-hours protection, external-action remediation, private
 access/authentication and out-of-sample strategy evaluation. Old estimates cannot
-prove which setups work. Deployment storage verification is a release gate.
+prove which setups work.
+
+## Deployment Evidence
+
+Railway deployment e1d1d44 succeeded. Production verified paper transport and
+Supabase journal recovery with no storage error. It recovered three June records
+(SPCE, AVXX, ASTX) with no order IDs. Those cannot supply attributable historical
+P&L; they prompted the explicit UNATTRIBUTED migration above. No open broker orders
+were reported. No synthetic trades were written into production statistics.

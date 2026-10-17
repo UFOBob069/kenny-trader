@@ -319,3 +319,39 @@ async def test_adapter_rejects_different_account_before_reading_orders():
     with pytest.raises(ValueError, match='different-account'):
         await client.trade_orders(trade())
     client._trading.get_order_by_id.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_canceled_close_with_shares_remaining_is_explicitly_unresolved():
+    trader, broker = runner()
+    t = trade(close_order_id='close', close_requested=True)
+    trader.store.save_trade(t)
+    broker.trade_orders.return_value = [order(), order('close', 'sell', 0, None, 'canceled')]
+    await trader.refresh_marks()
+    assert 'shares remaining' in t.reconciliation_error
+    assert t.status == TradeStatus.CLOSING and not t.pnl_verified
+
+
+def test_legacy_open_records_quarantined_without_guessing_outcomes(tmp_path):
+    path = str(tmp_path / 'paper.sqlite3')
+    store = SQLiteStore(path)
+    t = trade()
+    t.strategy_version = 'legacy'
+    t.order_ids = []
+    t.broker_account_id = None
+    store.save_trade(t)
+    store._db.close()
+    restored = SQLiteStore(path)
+    assert restored.get_trade(t.id).status == TradeStatus.UNATTRIBUTED
+    assert restored.performance()['excluded'] == 1
+    assert restored.performance()['unattributed'] == 1
+    assert not restored.open_trades() and not restored.closed_trades()
+    restored._db.close()
+
+
+@pytest.mark.asyncio
+async def test_unattributed_history_cannot_submit_a_close():
+    trader, broker = runner()
+    with pytest.raises(ValueError, match='Historical record'):
+        await trader.close(trade(status='UNATTRIBUTED'))
+    broker.close_position.assert_not_awaited()

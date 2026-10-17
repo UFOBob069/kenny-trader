@@ -11,7 +11,7 @@ Priority: better morning VWAP setups; retain and improve daily chart review.
 Second tranche: broker-fill reconciliation, durable journal recovery, setup-level
 paper results and research-only daily entry/stop/2R plans implemented. See
 [tracking and plan contract](PAPER_TRACKING_AND_DAILY_PLANS.md). Market-open
-validation and deployment storage verification remain release gates.
+validation remains pending; deployed Supabase journal recovery is verified.
 
 - KT-001 partial: verified paper-only transport and research-mode guards implemented;
   authentication and deployment credential isolation remain open.

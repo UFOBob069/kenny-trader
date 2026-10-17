@@ -618,6 +618,11 @@ class AlpacaClient:
         positions = await asyncio.to_thread(self._trading.get_all_positions)
         return next((float(p.qty) for p in positions if p.symbol == symbol), 0.0)
 
+    async def position_inventory(self) -> list[dict]:
+        self._require_paper()
+        positions = await asyncio.to_thread(self._trading.get_all_positions)
+        return [dict(symbol=p.symbol, quantity=float(p.qty), average_entry=float(p.avg_entry_price)) for p in positions]
+
     async def assert_symbol_clear(self, symbol: str) -> None:
         if await self.position_quantity(symbol):
             raise ValueError('Broker already has a position in this symbol')

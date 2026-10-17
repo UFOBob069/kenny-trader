@@ -72,9 +72,22 @@ async def account():
 
 
 @app.get("/api/trades")
-def trades():
+async def trades():
     open_trades = orch.store.open_trades()
+    untracked_positions = []
+    inventory_error = None
+    if paper_execution_allowed() and orch.connected:
+        try:
+            positions = await orch.broker.position_inventory()
+            tracked = {t.symbol for t in open_trades if t.broker_account_id == orch.broker.account_id}
+            untracked_positions = [p for p in positions if p['symbol'] not in tracked]
+        except Exception:
+            inventory_error = 'Broker position inventory unavailable; account exposure is not confirmed'
     return {
+        'untracked_positions': untracked_positions,
+        'inventory_error': inventory_error,
+        'unattributed': [t.model_dump(exclude={'broker_account_id', 'signal_snapshot', 'orders'})
+                         for t in orch.store.trades.values() if t.status.value == 'UNATTRIBUTED'],
         "open": [
             {**t.model_dump(exclude={'broker_account_id', 'signal_snapshot', 'orders'}), "unrealized_pnl": round(t.unrealized_pnl, 2),
              "remaining_quantity": t.remaining_quantity, "realized_r": t.realized_r}

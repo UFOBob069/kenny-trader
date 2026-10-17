@@ -111,6 +111,7 @@ class TradeStatus(str, Enum):
     CLOSING = "CLOSING"
     CLOSED = "CLOSED"
     CANCELED = "CANCELED"
+    UNATTRIBUTED = "UNATTRIBUTED"
 
 
 class Trade(BaseModel):

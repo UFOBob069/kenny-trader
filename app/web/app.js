@@ -494,6 +494,11 @@ async function refreshTrades() {
   const d = await j('/api/trades');
   renderPositions(d.open || []);
   renderPerformance(d.performance || {}, d.closed || []);
+  const legacy = (d.unattributed || []).map(t => `${t.symbol} (${t.opened_at?.slice(0,10)})`).join(', ');
+  const external = (d.untracked_positions || []).map(p => `${p.symbol}: ${p.quantity} shares`).join(', ');
+  if (legacy) document.getElementById('tracking-health').textContent += ` · Unattributed history: ${legacy}. Outcomes unknown.`;
+  if (external) document.getElementById('tracking-health').textContent += ` · Broker positions outside this journal: ${external}. Manage in Alpaca.`;
+  if (d.inventory_error) document.getElementById('tracking-health').textContent += ` · ${d.inventory_error}`;
 }
 
 function renderPerformance(perf, closed) {

@@ -95,6 +95,9 @@ class Trader:
             orders = await self.broker.trade_orders(trade)
             reconcile(trade, orders)
             trade.protection_warning = None
+            close_order = trade.orders.get(trade.close_order_id)
+            if close_order and close_order['status'] in TERMINAL and trade.remaining_quantity:
+                raise ValueError('Close order ended with shares remaining; inspect Alpaca paper position')
             if trade.status not in (TradeStatus.CLOSED, TradeStatus.CANCELED):
                 signed = trade.remaining_quantity * (1 if trade.direction == Direction.LONG else -1)
                 position = await self.broker.position_quantity(trade.symbol)
@@ -125,6 +128,8 @@ class Trader:
     async def close(self, trade, exit_price=None):
         require_paper_execution()
         async with self._lock:
+            if trade.status == TradeStatus.UNATTRIBUTED:
+                raise ValueError('Historical record cannot authorize a broker close; manage any existing position in Alpaca')
             if trade.status in (TradeStatus.CLOSED, TradeStatus.CANCELED):
                 return trade
             await self._sync(trade)
