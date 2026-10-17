@@ -5,7 +5,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -13,6 +13,7 @@ from app.config import settings
 from app.data.market_hours import is_extended_hours, market_session
 from app.engine.orchestrator import Orchestrator
 from app.api.technicals import router as technicals_router, research
+from app.engine.execution_policy import paper_execution_allowed
 
 log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -32,6 +33,11 @@ app = FastAPI(title="VWAP Event Trading Copilot", lifespan=lifespan)
 app.include_router(technicals_router)
 
 
+def require_paper_mode():
+    if not paper_execution_allowed():
+        raise HTTPException(403, "Research-only mode: orders and automation are disabled.")
+
+
 # --- signals ----------------------------------------------------------- #
 
 @app.get("/api/signals")
@@ -44,6 +50,7 @@ def signals():
 
 @app.post("/api/signals/{signal_id}/approve")
 async def approve(signal_id: str):
+    require_paper_mode()
     return await orch.approve_signal(signal_id)
 
 
@@ -78,6 +85,7 @@ def trades():
 
 @app.post("/api/trades/{trade_id}/close")
 async def close_trade(trade_id: str):
+    require_paper_mode()
     return await orch.close_trade(trade_id)
 
 
@@ -95,27 +103,39 @@ def get_settings():
 
 @app.put("/api/settings")
 async def put_settings(patch: dict):
-    orch.rules.update(patch)
+    try:
+        orch.rules.update(patch)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from None
     return orch.rules.as_dict()
 
 
 @app.put("/api/filters/market-cap")
 async def set_market_cap_filter(body: dict):
-    millions = max(0.0, float(body.get("millions", 0)))
-    orch.rules.min_market_cap_millions = millions
+    try:
+        orch.rules.update({'min_market_cap_millions': body.get('millions', 0)})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    millions = orch.rules.min_market_cap_millions
     await orch.rescan_universe()
     return {"ok": True, "min_market_cap_millions": orch.rules.min_market_cap_millions}
 
 
 @app.put("/api/filters/russell-1000")
 async def set_russell_filter(body: dict):
-    orch.rules.scan_russell_1000_only = bool(body.get("enabled", True))
+    try:
+        orch.rules.update({'scan_russell_1000_only': body.get('enabled', True)})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
     await orch.rescan_universe()
     return {"ok": True, "scan_russell_1000_only": orch.rules.scan_russell_1000_only}
 
 
 @app.post("/api/automation/toggle")
 def toggle_automation():
+    require_paper_mode()
+    if not orch.connected or not getattr(orch.broker, 'paper_verified', False):
+        raise HTTPException(409, "Paper account is not connected and verified.")
     orch.rules.auto_trade_enabled = not orch.rules.auto_trade_enabled
     return {"ok": True, "auto_trade_enabled": orch.rules.auto_trade_enabled}
 
@@ -129,7 +149,16 @@ def disable_automation():
 @app.get("/api/status")
 def status():
     can, reason = orch.risk.can_trade()
+    verified = bool(getattr(orch.broker, 'paper_verified', False))
+    if not paper_execution_allowed():
+        can, reason = False, "Research-only mode"
+    elif not orch.connected or not verified:
+        can, reason = False, "Paper account is not connected and verified"
     return {
+        "execution_mode": settings.execution_mode,
+        "live_trading_allowed": False,
+        "paper_verified": verified,
+        "pnl_verified": False,
         "broker_connected": orch.connected,
         "broker": settings.broker,
         "market_session": market_session(),
@@ -137,8 +166,13 @@ def status():
         "watching": sorted(orch.detectors.keys()),
         "scan_universe": orch.scan_universe,
         "scan_filter_errors": orch.scan_data.filter_errors,
+        "scan_source_errors": orch.scan_data.source_errors,
+        "membership": orch.scan_data.finnhub.membership_status,
+        "scan_coverage": orch.scan_coverage,
+        "scan_in_progress": orch.scan_in_progress,
+        "last_scan_error": orch.last_scan_error,
         "candidates": {s: c.model_dump() for s, c in orch.candidates.items()},
-        "auto_trade_enabled": orch.rules.auto_trade_enabled,
+        "auto_trade_enabled": paper_execution_allowed() and verified and orch.connected and orch.rules.auto_trade_enabled,
         "trades_today": orch.risk.trades_today,
         "realized_pnl_today": round(orch.risk.realized_pnl_today, 2),
         "can_trade": can,

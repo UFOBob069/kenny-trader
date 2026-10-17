@@ -1,7 +1,14 @@
 # Product Strategy
 
-Version: 2026-10-17. Status: audience and research-only authority confirmed;
-sequencing and numerical success targets proposed.
+Version: 2026-10-17. Status: personal audience and paper-only experiments authorized;
+sequencing and numerical success targets remain subject to evidence.
+
+**Implementation update:** David authorized starting the roadmap and automated
+paper trading for tests (D015). The research-only authority statements in this
+original strategy now apply to daily research and optional research mode; the
+morning tool may run paper experiments behind a verified paper-only transport.
+Live execution is prohibited. Paper fill reconciliation moves ahead of any use
+of simulated P&L as evidence; no broader automation platform is planned.
 
 ## Problem and audience
 

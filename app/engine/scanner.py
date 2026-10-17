@@ -6,6 +6,7 @@ gap / relative-volume filters (required for publishing signals).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from app.config import settings
@@ -42,11 +43,14 @@ class Scanner:
     async def scan(self, symbols: dict[str, str] | None = None) -> list[Candidate]:
         symbols = symbols if symbols is not None else await self.universe()
         log.info("Scanning %d symbols from daily universe", len(symbols))
-        candidates: list[Candidate] = []
-        for sym, catalyst in symbols.items():
-            cand = await self._evaluate(sym, catalyst, require_filters=True, with_news=False)
-            if cand:
-                candidates.append(cand)
+        semaphore = asyncio.Semaphore(4)
+
+        async def evaluate(sym, catalyst):
+            async with semaphore:
+                return await self._evaluate(sym, catalyst, require_filters=True, with_news=False)
+
+        results = await asyncio.gather(*(evaluate(sym, catalyst) for sym, catalyst in symbols.items()))
+        candidates = [candidate for candidate in results if candidate is not None]
 
         candidates.sort(key=lambda c: abs(c.gap_pct) * max(c.relative_volume, 1), reverse=True)
         log.info("Filtered candidates: %s", [c.symbol for c in candidates])

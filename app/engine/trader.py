@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.data.alpaca import BrokerClient
 from app.db.store import MemoryStore
 from app.engine.risk import RiskManager
+from app.engine.execution_policy import paper_execution_allowed, require_paper_execution
 from app.models import Direction, Signal, SignalStatus, Trade, TradeStatus
 
 log = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class Trader:
         self.risk = risk
 
     async def execute(self, signal: Signal, auto: bool) -> tuple[Trade | None, str | None]:
+        require_paper_execution()
         ok, reason = self.risk.can_trade()
         if not ok:
             log.warning("Trade blocked for %s: %s", signal.symbol, reason)
@@ -64,8 +66,8 @@ class Trader:
             pending_exits=placement.pending_exits,
         )
         self.store.save_trade(trade)
-        if not placement.pending_exits:
-            self.risk.record_trade_opened()
+        # Reserve a slot on submission, including unfilled extended-hours entries.
+        self.risk.record_trade_opened()
         log.info("Trade opened: %s %s x%d @ %.2f (conf %.0f%%)",
                  trade.direction.value, trade.symbol, qty, trade.entry, trade.confidence)
         if placement.pending_exits:
@@ -78,6 +80,9 @@ class Trader:
         return trade, note
 
     async def close(self, trade: Trade, exit_price: float | None = None) -> Trade:
+        require_paper_execution()
+        if trade.status == TradeStatus.CLOSED:
+            return trade
         self.broker.cancel_orders(trade.order_ids)
         await self.broker.close_position(trade.symbol, trade.direction, trade.quantity)
         price = exit_price or await self.broker.last_price(trade.symbol) or trade.entry
@@ -93,6 +98,8 @@ class Trader:
 
     async def refresh_marks(self) -> None:
         """Update marks and attach stop/target after extended-hours entries fill."""
+        if not paper_execution_allowed():
+            return
         open_trades = self.store.open_trades()
         pending_before = {t.id: t.pending_exits for t in open_trades}
         await self.broker.sync_pending_exits(open_trades)
@@ -100,9 +107,7 @@ class Trader:
         for trade in open_trades:
             was_pending = pending_before.get(trade.id, False)
             if was_pending and not trade.pending_exits:
-                if len(trade.order_ids) > 1:
-                    self.risk.record_trade_opened()
-                else:
+                if len(trade.order_ids) <= 1:
                     trade.status = TradeStatus.CLOSED
                     trade.closed_at = datetime.now(timezone.utc)
                 self.store.save_trade(trade)

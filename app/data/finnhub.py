@@ -9,11 +9,10 @@ import httpx
 from app.config import settings
 from app.data.market_hours import ET, trading_date
 from app.data.symbol_filter import is_common_ticker
+from app.data.iwb_holdings import IwbHoldings
 
 log = logging.getLogger(__name__)
 BASE = "https://finnhub.io/api/v1"
-_RUSSELL_CACHE: set[str] | None = None
-_RUSSELL_CACHE_DATE = None
 
 
 def market_cap_from_profile(profile: dict, price: float | None = None) -> float | None:
@@ -40,25 +39,40 @@ def normalize_earnings(row: dict) -> dict:
 class FinnhubClient:
     def __init__(self) -> None:
         self._http = httpx.AsyncClient(timeout=20)
+        self._membership = IwbHoldings(self._http)
+        self.errors: dict[str, str] = {}
+
+    @property
+    def membership_status(self) -> dict:
+        return dict(self._membership.status)
 
     async def close(self) -> None:
         await self._http.aclose()
 
     async def _get(self, path: str, **params) -> dict | list:
         if not settings.finnhub_api_key:
+            self.errors[path] = 'Finnhub credentials not configured'
             return {}
         params["token"] = settings.finnhub_api_key
         try:
             r = await self._http.get(f"{BASE}{path}", params=params)
             r.raise_for_status()
-            return r.json()
-        except Exception:
-            log.exception("Finnhub request failed: %s", path)
+            data = r.json()
+            self.errors.pop(path, None)
+            return data
+        except (httpx.HTTPError, ValueError) as exc:
+            code = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            error = {401: 'credentials rejected', 403: 'subscription access denied',
+                     429: 'rate limit reached'}.get(code, f'HTTP {code}' if code else 'provider unavailable or invalid response')
+            self.errors[path] = f'Finnhub {error}'
+            # httpx exception strings may include the secret token query parameter.
+            log.warning("Finnhub request failed: %s (%s)", path, error)
             return {}
 
     async def earnings_today(self) -> list[dict]:
         """US symbols reporting earnings on today's US market date (ET)."""
         if not settings.finnhub_api_key:
+            self.errors['/calendar/earnings'] = 'Finnhub earnings credentials not configured'
             log.warning("FINNHUB_API_KEY not set — earnings calendar will be empty")
             return []
         today = trading_date().isoformat()
@@ -67,36 +81,8 @@ class FinnhubClient:
         return [r for r in rows if r.get("symbol") and is_common_ticker(r["symbol"])]
 
     async def russell_1000_symbols(self) -> set[str]:
-        """Russell 1000 proxy: holdings of the IWB ETF (refreshed daily)."""
-        global _RUSSELL_CACHE, _RUSSELL_CACHE_DATE
-        today = trading_date()
-        if _RUSSELL_CACHE is not None and _RUSSELL_CACHE_DATE == today:
-            return _RUSSELL_CACHE
-
-        symbols: set[str] = set()
-        skip = 0
-        while True:
-            data = await self._get("/etf/holdings", symbol="IWB", skip=skip)
-            if not isinstance(data, dict):
-                break
-            holdings = data.get("holdings") or []
-            if not holdings:
-                break
-            for row in holdings:
-                sym = row.get("symbol") or row.get("ticker")
-                if sym and is_common_ticker(sym):
-                    symbols.add(sym.upper())
-            if len(holdings) < 100:
-                break
-            skip += len(holdings)
-
-        if symbols:
-            _RUSSELL_CACHE = symbols
-            _RUSSELL_CACHE_DATE = today
-            log.info("Russell 1000 universe loaded: %d symbols (IWB holdings)", len(symbols))
-        else:
-            log.warning("Russell 1000 load failed; membership could not be verified")
-        return symbols
+        """Same IWB proxy, obtained from its issuer without a Finnhub ETF entitlement."""
+        return await self._membership.symbols()
 
     async def earnings_history(self, symbol: str) -> dict | None:
         """Most recent reported quarter (for EPS beat/miss after release)."""

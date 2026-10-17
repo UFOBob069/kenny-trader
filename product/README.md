@@ -7,14 +7,15 @@ Accountable owner and trading-authority approver: David.
 
 Make Kenny a trustworthy personal research-and-alerts tool, prioritizing better
 morning VWAP setups and retaining the 5-10 minute daily SMA/AVWAP review workflow.
-Automation development is out of scope for this month. Existing execution paths
-must be isolated before calling the deployed product research-only.
+David subsequently authorized automated paper trading for tests. Live execution
+is excluded. The first implementation adds a hard paper-only transport boundary
+and restores the morning membership source. [Delivery details](DELIVERY_2026-10-17.md).
 
-**Current release posture:** Daily Technicals is deployed and usable for research
-with documented limitations. Live execution is not recommended: authentication,
-broker-state reconciliation, restart recovery, and pending-order risk accounting
-have unresolved findings. Production reported AUTO ON during the audit; paper
-versus live mode was not established. No trading settings were changed.
+**Current release posture:** Daily Technicals remains research-only; morning
+execution is an experimental paper-only capability. Authentication, fill
+reconciliation and restart recovery remain open. P&L is unverified; paper results
+are not evidence of profitability. The initial audit's unknown-mode AUTO ON state
+was disabled before implementing the paper boundary.
 
 ## Documents
 
@@ -33,10 +34,9 @@ versus live mode was not established. No trading settings were changed.
 - Codex owns discovery synthesis, evidence gathering, prioritization, specifications,
   and maintaining this backlog during authorized work. David should approve
   outcomes and material trade-offs, not supply a feature list for every iteration.
-- This engagement authorizes audit and planning only. The previously completed
-  chart work was pushed as `3998465`; no new application features or audit fixes
-  were implemented in this phase.
-- After implementation is authorized, take the highest-priority unblocked item
+- David authorized roadmap implementation after the initial audit. Chart work
+  was pushed as `3998465` and initial product docs as `b4c2c04`.
+- Take the highest-priority unblocked item
   from the agreed roadmap, define acceptance tests, deliver a small increment,
   verify it, and update the backlog and decision log. Do not start lower-priority
   feature work while its release gates are unresolved.
@@ -66,6 +66,6 @@ research-only authority govern. This interpretation was stated back to David.
 Exact allocation between morning and daily work remains an adjustable planning
 choice, not a reason to block the audit.
 
-These decisions do not describe current deployment authority: production reported
-AUTO ON, and this planning phase did not change it. Provider spend is a later
+The research-only answer above was superseded by the subsequent explicit paper
+automation authorization in D015. Live trading remains prohibited. Provider spend is a later
 approval gate after measuring existing entitlements; no paid upgrade is assumed.

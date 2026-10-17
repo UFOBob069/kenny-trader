@@ -1,5 +1,42 @@
 # VWAP Event Trading Copilot
 
+## Current Authority: Paper Only
+
+Live execution is disabled in this release. Alpaca's paper endpoint is selected
+unconditionally and verified before every broker mutation. `ALPACA_PAPER=false`
+cannot select live trading. IBKR connects read-only and rejects order mutations.
+
+`EXECUTION_MODE=paper` permits automated paper experiments; automation defaults ON
+with the existing score, freshness, liquidity and risk checks. Set
+`EXECUTION_MODE=research` to block manual orders, automation and exit attachment
+at the API, engine and broker layers. Live is not a valid mode and cannot be
+enabled from dashboard settings. Use paper API credentials.
+
+`AUTO_TRADE_ENABLED=false` disables automatic paper entries at startup. The runtime
+toggle resets to the environment/default on restart. A mode change never cancels
+existing broker orders or liquidates positions. Manage those in the broker.
+
+Paper trading does not establish profitability. App P&L is labeled **unverified**
+while fill reconciliation and restart recovery remain open work. Pending entries
+reserve a daily trade slot immediately and are not counted again when filled;
+canceled orders conservatively retain their slot until the daily reset.
+
+The Russell filter still uses the IWB proxy, now from the
+[issuer's holdings download](https://www.ishares.com/us/products/239707/ishares-russell-1000-etf).
+It validates the publication date (maximum five calendar days), equity count and
+aggregate weight; caches success for the day; and retries failures after five
+minutes. Missing/stale/incomplete data pauses the filter without widening it.
+These integrity checks do not guarantee exact official index membership.
+
+Independent cap, watchlist and candidate lookups run with concurrency capped at
+four. Up to `MAX_ACTIVE_SYMBOLS=100` filtered symbols receive chart/RVOL history
+instead of twelve; unmonitored symbols and source diagnostics are disclosed in
+status. Qualification thresholds have not been loosened. Coverage recovery is
+not yet evidence of better trading outcomes.
+
+See [first roadmap delivery](product/DELIVERY_2026-10-17.md). The historical overview
+below is superseded by this authority policy and Current Engine Behavior.
+
 ## Current Engine Behavior
 
 Qualification uses observed liquidity instead of a minimum stock price;

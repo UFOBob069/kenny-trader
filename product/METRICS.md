@@ -3,6 +3,11 @@
 Date: 2026-10-17. Personal-use research/alerts pilot. No analytics code was added
 in this audit. Proposed targets must not be confused with observed baselines.
 
+Implementation update: automated paper experiments were subsequently authorized
+(D015). Order-state reconciliation is still incomplete; app P&L must not be used
+as the performance baseline. Source/coverage/timing diagnostics added in the first
+delivery are operational visibility, not a durable analytics pipeline.
+
 ## What We Actually Know
 
 | Evidence | Baseline | Interpretation |

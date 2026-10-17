@@ -37,10 +37,41 @@ KT-001 gate, and paper versus live account mode remains unverified.
 
 ## Deferred decisions
 
+### D015 / 2026-10-17 / Confirmed: Paper Automation Authorized
+
+David authorized starting implementation and then clarified that automated paper
+trades are acceptable for testing. This supersedes D001's planning-only limit and
+D003's research-only authority only for paper experiments. It does not authorize
+live trading. The initial production automation was disabled before this change;
+the new release hard-binds all Alpaca mutations to a verified paper transport and
+blocks IBKR execution. Research mode remains available. Default paper automation
+is enabled, subject to existing risk/freshness/liquidity checks.
+
+### D016 / 2026-10-17 / Implemented: Same Proxy, Issuer Source
+
+Use the public iShares IWB holdings CSV for the existing Russell proxy rather than
+the failing Finnhub ETF lookup. Preserve exchange/common-stock/cap filters. Require
+a publication date no more than five calendar days old, 900-1200 equity rows,
+97-101% aggregate equity weight and at least 850 eligible tickers. Cache success
+for the day, back off failures five minutes, and fail closed instead of silently
+widening or reusing an unverified snapshot. These are defensive heuristics, not a
+claim of official index-membership completeness. No provider subscription bought.
+
+### D017 / 2026-10-17 / Implemented: Broader Initialization, Unchanged Setups
+
+Raise bounded automatic chart initialization from 12 to 100 filtered symbols;
+publish unmonitored-symbol coverage and perform independent lookups with at most
+four concurrent operations. This addresses missing RVOL qualification outside the
+initial twelve. Do not loosen gap, RVOL, liquidity or technical pattern thresholds
+until labeled morning observations support a change.
+
+### Remaining Deferred Decisions
+
 - Exact split of implementation time between morning reliability and daily polish:
   decide from week-one evidence; default allocation favors morning research.
 - Paid data or alternate provider: decide only after entitlement diagnosis, coverage
   comparison, licensing review and a concrete cost proposal.
 - Alert delivery outside the app: no channel or schedule was requested; first
   establish that alerts are timely and worth receiving.
-- Automated execution: no discovery or implementation commitment this month.
+- Live execution: no discovery or implementation commitment this month. Paper
+  experiments are now explicitly permitted under D015.

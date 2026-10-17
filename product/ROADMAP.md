@@ -1,9 +1,24 @@
 # 30-Day Roadmap
 
 Window: October 18-November 16, 2026, inclusive (30 calendar days).
-Status: proposed development plan; **no implementation authorized by this audit**.
-Audience: David only. Authority: research and alerts only. Automation is excluded.
+Status: implementation authorized after the initial audit; first tranche in validation.
+Audience: David only. Updated authority: research plus automated paper experiments;
+live execution is excluded. D015 supersedes the original automation exclusion.
 Priority: better morning VWAP setups; retain and improve daily chart review.
+
+## Progress
+
+- KT-001 partial: verified paper-only transport and research-mode guards implemented;
+  authentication and deployment credential isolation remain open.
+- KT-005 partial: dated issuer IWB source, integrity checks, source diagnostics and
+  bounded lookup concurrency implemented; market-open validation remains pending.
+- KT-004 partial: pending submissions reserve daily slots; full lifecycle/protection
+  work remains open. Paper P&L is explicitly unverified.
+- Next: KT-016 observed setup evidence, then KT-002/003 paper-state reconciliation.
+
+The original weekly sequencing below remains a baseline, with paper-only testing
+now permitted. Statements excluding all automation are superseded only for this
+bounded paper experiment, not for live trading or new notification automation.
 
 ## Outcome
 

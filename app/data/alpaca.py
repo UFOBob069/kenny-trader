@@ -36,6 +36,7 @@ from app.data.orders import OrderPlacement
 from app.data.symbol_filter import is_common_ticker
 from app.models import Bar, Direction, Trade
 from app.engine.liquidity import recent_activity
+from app.engine.execution_policy import require_paper_execution
 
 log = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -81,14 +82,17 @@ class AlpacaClient:
         self._rvol_profiles: dict[str, RelativeVolumeProfile] = {}
         self._rvol_latest: dict[str, tuple[float | None, datetime | None]] = {}
         self._liquidity_activity: dict[str, dict] = {}
+        self.paper_verified = False
+        self.scan_errors: dict[str, str] = {}
 
     async def connect(self) -> None:
+        self.paper_verified = False
         if not settings.alpaca_api_key or not settings.alpaca_secret_key:
             raise ValueError("ALPACA_API_KEY and ALPACA_SECRET_KEY are required")
         self._trading = TradingClient(
             settings.alpaca_api_key,
             settings.alpaca_secret_key,
-            paper=settings.alpaca_paper,
+            paper=True,
         )
         self._data = StockHistoricalDataClient(
             settings.alpaca_api_key,
@@ -99,8 +103,9 @@ class AlpacaClient:
             settings.alpaca_secret_key,
         )
         account = await asyncio.to_thread(self._trading.get_account)
-        mode = "paper" if settings.alpaca_paper else "live"
-        log.info("Connected to Alpaca (%s) — equity $%s", mode, account.equity)
+        self.paper_verified = self._trading._base_url == 'https://paper-api.alpaca.markets'
+        mode = "paper"
+        log.info("Connected to Alpaca (%s)", mode)
         self._account_cache = {
             "buying_power": float(account.buying_power),
             "equity": float(account.equity),
@@ -124,6 +129,7 @@ class AlpacaClient:
             return getattr(self, "_account_cache", {})
 
     def disconnect(self) -> None:
+        self.paper_verified = False
         self._trading = None
         self._data = None
         self._screener = None
@@ -285,6 +291,7 @@ class AlpacaClient:
     async def market_movers(self, top: int = 25) -> list[str]:
         """Top gainers + losers for today's scan list."""
         if not self._screener:
+            self.scan_errors['movers'] = 'Alpaca movers not connected'
             return []
         try:
             movers = await asyncio.to_thread(
@@ -292,8 +299,10 @@ class AlpacaClient:
                 MarketMoversRequest(top=top),
             )
         except Exception:
+            self.scan_errors['movers'] = 'Alpaca movers unavailable; scan coverage is incomplete'
             log.exception("Alpaca market movers request failed")
             return []
+        self.scan_errors.pop('movers', None)
         symbols: list[str] = []
         for group in (getattr(movers, "gainers", None), getattr(movers, "losers", None)):
             if not group:
@@ -381,6 +390,7 @@ class AlpacaClient:
         stop: float,
         target: float,
     ) -> OrderPlacement:
+        self._require_paper()
         if not self._trading:
             raise RuntimeError("Alpaca not connected")
 
@@ -401,6 +411,7 @@ class AlpacaClient:
         stop: float,
         target: float,
     ) -> OrderPlacement:
+        self._require_paper()
         side = OrderSide.BUY if direction == Direction.LONG else OrderSide.SELL
         request = LimitOrderRequest(
             symbol=symbol.upper(),
@@ -429,6 +440,7 @@ class AlpacaClient:
         target: float,
     ) -> OrderPlacement:
         """Extended hours: limit entry only; stop/target attached after fill."""
+        self._require_paper()
         side = OrderSide.BUY if direction == Direction.LONG else OrderSide.SELL
         request = LimitOrderRequest(
             symbol=symbol.upper(),
@@ -454,6 +466,7 @@ class AlpacaClient:
         target: float,
     ) -> list[str]:
         """OCO stop + take-profit after extended-hours entry fills."""
+        self._require_paper()
         if not self._trading:
             raise RuntimeError("Alpaca not connected")
         close_side = OrderSide.SELL if direction == Direction.LONG else OrderSide.BUY
@@ -477,6 +490,7 @@ class AlpacaClient:
         return ids
 
     async def sync_pending_exits(self, trades: list[Trade]) -> None:
+        self._require_paper()
         if not self._trading:
             return
         for trade in trades:
@@ -502,6 +516,7 @@ class AlpacaClient:
                 log.warning("Extended entry %s for %s ended as %s", entry_id, trade.symbol, status.value)
 
     async def close_position(self, symbol: str, direction: Direction, quantity: int) -> str:
+        self._require_paper()
         if not self._trading:
             raise RuntimeError("Alpaca not connected")
         close_side = OrderSide.SELL if direction == Direction.LONG else OrderSide.BUY
@@ -564,6 +579,7 @@ class AlpacaClient:
         return out
 
     def cancel_orders(self, order_ids: list[str]) -> None:
+        self._require_paper()
         if not self._trading:
             return
         cancel_ids = {oid for oid in order_ids}
@@ -576,6 +592,13 @@ class AlpacaClient:
                     self._trading.cancel_order_by_id(order.id)
                 except Exception:
                     log.exception("Failed to cancel Alpaca order %s", order.id)
+
+    def _require_paper(self) -> None:
+        require_paper_execution()
+        # Verify the actual transport, not an environment flag or a UI label.
+        if (not self.paper_verified or not self._trading
+                or self._trading._base_url != 'https://paper-api.alpaca.markets'):
+            raise PermissionError("Paper account transport is not verified; order blocked.")
 
 
 def _to_bar(raw) -> Bar:

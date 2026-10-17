@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,9 +9,10 @@ class Settings(BaseSettings):
 
     # Broker: alpaca (default) or ibkr
     broker: str = "alpaca"
+    execution_mode: Literal["research", "paper"] = "paper"
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
-    alpaca_paper: bool = True
+    alpaca_paper: bool = True  # Legacy input; trading transport is always paper.
     alpaca_data_feed: str = "iex"  # iex (free) or sip (paid subscription)
 
     # IBKR (only when BROKER=ibkr)
@@ -31,7 +34,7 @@ class Settings(BaseSettings):
     supabase_key: str = ""
 
     # Trading rules (runtime-editable via the dashboard; these are startup defaults)
-    auto_trade_enabled: bool = False
+    auto_trade_enabled: bool = True  # Paper-only experiment; research mode always overrides this.
     auto_trade_threshold: float = 90.0
     max_trades_per_day: int = 2
     max_daily_loss: float = 100.0
@@ -60,6 +63,7 @@ class Settings(BaseSettings):
     max_signal_bar_age_seconds: int = Field(default=90, ge=0)
     morning_only: bool = True
     setup_low_lookback_bars: int = Field(default=5, ge=3)
+    max_active_symbols: int = Field(default=100, ge=12, le=200)
 
     # Dashboard (Railway sets PORT; bind 0.0.0.0 in production)
     api_host: str = "0.0.0.0"

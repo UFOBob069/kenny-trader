@@ -25,6 +25,7 @@ from app.engine.signal_hygiene import expire_reason
 from app.engine.scanner import Scanner
 from app.engine.liquidity import execution_liquidity_reason, recent_activity
 from app.engine.trader import Trader
+from app.engine.execution_policy import paper_execution_allowed, require_paper_execution
 from app.models import Candidate, Signal, SignalStatus, WatchItem
 from app.signals.detector import SetupDetector
 
@@ -33,7 +34,7 @@ log = logging.getLogger(__name__)
 SCAN_INTERVAL = settings.scan_interval_seconds
 BAR_POLL_INTERVAL = settings.bar_poll_interval_seconds
 MARK_INTERVAL = 60         # refresh marks + expire stale signals every minute
-MAX_ACTIVE_SYMBOLS = 12
+MAX_ACTIVE_SYMBOLS = settings.max_active_symbols
 
 
 class Orchestrator:
@@ -64,6 +65,9 @@ class Orchestrator:
         self.last_scan_at: datetime | None = None
         self.last_scan_duration_seconds: float | None = None
         self.last_poll_duration_seconds: float | None = None
+        self.scan_in_progress = False
+        self.last_scan_error: str | None = None
+        self.scan_coverage: dict = {}
         self._chart_init_tasks: dict[str, asyncio.Task] = {}
         self._chart_init_sem = asyncio.Semaphore(4)
         self._tasks: list[asyncio.Task] = []
@@ -109,9 +113,18 @@ class Orchestrator:
     async def _run_scan(self) -> None:
         async with self._scan_lock:
             started = monotonic()
-            await self._scan_once()
-            self.last_scan_at = datetime.now(timezone.utc)
-            self.last_scan_duration_seconds = round(monotonic() - started, 3)
+            self.scan_in_progress = True
+            try:
+                await self._scan_once()
+                self.last_scan_at = datetime.now(timezone.utc)
+                self.last_scan_error = None
+            except Exception:
+                self.last_scan_error = 'Scan failed; waiting for retry'
+                self.candidates = {}
+                raise
+            finally:
+                self.scan_in_progress = False
+                self.last_scan_duration_seconds = round(monotonic() - started, 3)
 
     async def _scan_once(self) -> None:
         self.scan_universe = await self.scanner.filtered_universe(
@@ -122,16 +135,17 @@ class Orchestrator:
         self._expire_stale_signals()
 
         ui_symbols: dict[str, str] = dict(self.scan_universe)
-        for sym in self.detectors:
-            ui_symbols.setdefault(sym, self.scan_universe.get(sym, "chart"))
 
-        watchlist = {}
-        for sym in self.scanner.rank_universe(ui_symbols):
+        semaphore = asyncio.Semaphore(4)
+
+        async def watch(sym):
             catalyst = ui_symbols.get(sym, "news")
-            item = await self.scanner.watch_entry(sym, catalyst)
+            async with semaphore:
+                item = await self.scanner.watch_entry(sym, catalyst)
             item.watching = sym in self.detectors
-            watchlist[sym] = item
-        self.watchlist = watchlist
+            return sym, item
+
+        self.watchlist = dict(await asyncio.gather(*(watch(sym) for sym in self.scanner.rank_universe(ui_symbols))))
 
         allowed_charts = set(self.scan_universe)
         stale = set(self.detectors) - allowed_charts
@@ -157,6 +171,7 @@ class Orchestrator:
                 if sym in self.scan_universe and sym not in self.detectors and sym not in seen:
                     to_init.append(sym)
                     seen.add(sym)
+            to_init = to_init[:max(0, MAX_ACTIVE_SYMBOLS - len(self.detectors))]
             if to_init:
                 results = await asyncio.gather(
                     *(self._init_detector(sym) for sym in to_init),
@@ -169,12 +184,15 @@ class Orchestrator:
                         self.watchlist[sym].watching = True
 
         # Initial history loads also seed same-time-of-day volume profiles.
-        for sym in list(self.detectors):
-            if sym in self.scan_universe:
-                self.watchlist[sym] = await self.scanner.watch_entry(sym, self.scan_universe[sym])
-                self.watchlist[sym].watching = True
+        refreshed = await asyncio.gather(*(watch(sym) for sym in self.detectors if sym in self.scan_universe))
+        self.watchlist.update(refreshed)
         filtered = await self.scanner.scan(self.scan_universe)
         self.candidates = {c.symbol: c for c in filtered}
+        self.scan_coverage = dict(raw_symbols=self.scan_data.raw_symbol_count,
+                                  filtered_symbols=len(self.scan_universe),
+                                  active_symbols=len(self.detectors), qualified_symbols=len(self.candidates),
+                                  active_limit=MAX_ACTIVE_SYMBOLS,
+                                  unmonitored_symbols=sorted(set(self.scan_universe) - set(self.detectors)))
         self._schedule_analysis()
 
         log.info(
@@ -348,7 +366,7 @@ class Orchestrator:
                  signal.direction.value, signal.symbol, signal.entry, signal.stop,
                  signal.target, signal.confidence)
 
-        if (self.rules.auto_trade_enabled
+        if (paper_execution_allowed() and self.rules.auto_trade_enabled
                 and signal.confidence >= self.rules.auto_trade_threshold):
             async with self._execution_lock:
                 reason = await self._validate_execution(signal)
@@ -406,6 +424,7 @@ class Orchestrator:
         return reason
 
     async def approve_signal(self, signal_id: str) -> dict:
+        require_paper_execution()
         sig = self.store.get_signal(signal_id)
         if not sig:
             return {"ok": False, "error": "signal not found"}
@@ -526,6 +545,7 @@ class Orchestrator:
         return item
 
     async def close_trade(self, trade_id: str) -> dict:
+        require_paper_execution()
         trade = self.store.get_trade(trade_id)
         if not trade:
             return {"ok": False, "error": "trade not found"}

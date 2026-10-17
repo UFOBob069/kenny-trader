@@ -1,6 +1,7 @@
 """Daily scan universe: Finnhub earnings today + Alpaca top movers."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from time import monotonic
 from typing import TYPE_CHECKING
@@ -31,6 +32,8 @@ class DailyScanData:
         self._russell: set[str] | None = None
         self._quote_cache: dict[str, tuple[float, dict]] = {}
         self.filter_errors: list[str] = []
+        self.source_errors: list[str] = []
+        self.raw_symbol_count = 0
 
     async def close(self) -> None:
         await self.finnhub.close()
@@ -50,6 +53,10 @@ class DailyScanData:
                 symbols.setdefault(sym.upper(), "mover")
 
         filtered = await self._apply_universe_filters(symbols)
+        self.raw_symbol_count = len(symbols)
+        self.source_errors = list(getattr(self.finnhub, 'errors', {}).values())
+        if self.alpaca:
+            self.source_errors.extend(getattr(self.alpaca, 'scan_errors', {}).values())
         self._earnings_rows = {k: v for k, v in self._earnings_rows.items() if k in filtered}
         log.info(
             "Daily scan list: %d earnings today, %d after universe filter",
@@ -71,6 +78,9 @@ class DailyScanData:
             self._russell = russell or None
             if not russell:
                 self.filter_errors.append("Russell 1000 membership unavailable; scan paused while this filter is enabled.")
+                detail = getattr(self.finnhub, 'membership_status', {}).get('error')
+                if detail:
+                    self.filter_errors.append(detail)
                 log.warning(self.filter_errors[-1])
                 return {}
 
@@ -139,8 +149,14 @@ class DailyScanData:
             return symbols
         kept: dict[str, str] = {}
         dropped = 0
-        for sym, catalyst in symbols.items():
-            cap = await self.market_cap(sym)
+        semaphore = asyncio.Semaphore(4)
+
+        async def lookup(sym):
+            async with semaphore:
+                return await self.market_cap(sym)
+
+        caps = await asyncio.gather(*(lookup(sym) for sym in symbols))
+        for (sym, catalyst), cap in zip(symbols.items(), caps):
             if cap is not None and cap >= floor_usd:
                 kept[sym] = catalyst
             else:

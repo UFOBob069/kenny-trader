@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from ib_async import IB, Contract, LimitOrder, Order, Stock, StopOrder, util
+from ib_async import IB, Contract, Stock, util
 
 from app.data.orders import OrderPlacement
 from app.data.bar_sessions import split_sessions
@@ -21,7 +21,8 @@ class IbkrClient:
     async def connect(self) -> None:
         if self.ib.isConnected():
             return
-        await self.ib.connectAsync(settings.ibkr_host, settings.ibkr_port, clientId=settings.ibkr_client_id)
+        await self.ib.connectAsync(settings.ibkr_host, settings.ibkr_port,
+                                   clientId=settings.ibkr_client_id, readonly=True)
         log.info("Connected to IBKR %s:%s", settings.ibkr_host, settings.ibkr_port)
 
     def disconnect(self) -> None:
@@ -90,50 +91,17 @@ class IbkrClient:
         stop: float,
         target: float,
     ) -> OrderPlacement:
-        """Limit entry + OCA stop-loss and take-profit. Works outside RTH."""
-        contract = self._stock(symbol)
-        await self.ib.qualifyContractsAsync(contract)
-
-        action = "BUY" if direction == Direction.LONG else "SELL"
-        reverse = "SELL" if direction == Direction.LONG else "BUY"
-
-        parent = LimitOrder(action, quantity, round(entry, 2))
-        parent.outsideRth = True
-        parent.transmit = False
-
-        take_profit: Order = LimitOrder(reverse, quantity, round(target, 2))
-        stop_loss: Order = StopOrder(reverse, quantity, round(stop, 2))
-
-        trades = []
-        parent_trade = self.ib.placeOrder(contract, parent)
-        trades.append(parent_trade)
-        for i, child in enumerate((take_profit, stop_loss)):
-            child.parentId = parent_trade.order.orderId
-            child.outsideRth = True
-            child.transmit = i == 1  # transmit the whole bracket with the last child
-            trades.append(self.ib.placeOrder(contract, child))
-
-        ids = [str(t.order.orderId) for t in trades]
-        log.info("Bracket placed %s %s x%d entry=%.2f stop=%.2f target=%.2f ids=%s",
-                 action, symbol, quantity, entry, stop, target, ids)
-        return OrderPlacement(order_ids=ids)
+        """Execution is intentionally unavailable on this adapter."""
+        raise PermissionError("IBKR execution is disabled; this release supports Alpaca paper only.")
 
     async def sync_pending_exits(self, trades: list) -> None:
         pass  # IBKR brackets include exits at submission
 
     async def close_position(self, symbol: str, direction: Direction, quantity: int) -> str:
-        contract = self._stock(symbol)
-        await self.ib.qualifyContractsAsync(contract)
-        action = "SELL" if direction == Direction.LONG else "BUY"
-        order = Order(action=action, totalQuantity=quantity, orderType="MKT", outsideRth=True)
-        trade = self.ib.placeOrder(contract, order)
-        return str(trade.order.orderId)
+        raise PermissionError("IBKR execution is disabled; manage positions in the broker.")
 
     def cancel_orders(self, order_ids: list[str]) -> None:
-        want = {oid for oid in order_ids}
-        for t in self.ib.openTrades():
-            if str(t.order.orderId) in want:
-                self.ib.cancelOrder(t.order)
+        raise PermissionError("IBKR execution is disabled; manage orders in the broker.")
 
     async def account_summary(self) -> dict:
         rows = await self.ib.accountSummaryAsync()

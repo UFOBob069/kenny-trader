@@ -24,7 +24,9 @@ function toast(msg, ok = true) {
 
 async function j(url, opts) {
   const r = await fetch(url, opts);
-  return r.json();
+  const data = await r.json();
+  if (r.ok === false) throw new Error(data.detail || data.error || 'Request failed');
+  return data;
 }
 
 function fmtCap(n) {
@@ -165,13 +167,27 @@ function renderScanner() {
   const countEl = document.getElementById('scan-count');
   const ready = watchItems.filter(w => w.qualified).length;
   countEl.textContent = `${ready}/${watchItems.length} ready`;
+  const health = document.getElementById('scan-health');
+  const membership = lastStatus.membership || {};
+  const coverage = lastStatus.scan_coverage || {};
+  const messages = [];
+  if (lastStatus.scan_russell_1000_only !== false && membership.state === 'ready') {
+    messages.push(`IWB proxy ${membership.as_of} · ${membership.count} stocks`);
+  }
+  if (lastStatus.scan_in_progress) messages.push('Refreshing scan');
+  if (lastStatus.last_scan_at) messages.push(`Updated ${new Date(lastStatus.last_scan_at).toLocaleTimeString()}`);
+  if (coverage.unmonitored_symbols?.length) messages.push(`${coverage.unmonitored_symbols.length} outside active chart limit`);
+  messages.push(...(lastStatus.scan_source_errors || []));
+  messages.push(...(lastStatus.scan_filter_errors || []));
+  if (lastStatus.last_scan_error) messages.push(lastStatus.last_scan_error);
+  if (health) health.textContent = messages.join(' · ');
   if (!watchItems.length) {
     const errors = lastStatus.scan_filter_errors || [];
     if (errors.length) {
       el.textContent = errors.join(' ');
       return;
     }
-    el.innerHTML = '<div class="empty">No symbols — check API keys or cap filter.</div>';
+    el.textContent = lastStatus.market_session === 'closed' ? 'Market closed. No symbols in the current filtered scan.' : 'No symbols in the current filtered scan.';
     return;
   }
   el.innerHTML = watchItems.map(w => {
@@ -343,11 +359,14 @@ async function refreshCommandBar() {
   broker.textContent = s.broker_connected ? (s.broker || 'broker').toUpperCase() : 'OFFLINE';
   broker.className = 'pill ' + (s.broker_connected ? 'on' : 'off');
   document.getElementById('market-pill').textContent = (s.market_session || '—').toUpperCase();
-  document.getElementById('auto-pill').textContent = s.auto_trade_enabled ? 'AUTO ON' : 'AUTO OFF';
+  const paper = s.execution_mode === 'paper' && s.paper_verified;
+  document.getElementById('execution-pill').textContent = paper ? 'PAPER ONLY' : 'RESEARCH';
+  document.getElementById('auto-pill').textContent = s.auto_trade_enabled ? 'PAPER AUTO ON' : 'AUTO OFF';
   document.getElementById('auto-pill').className = 'pill ' + (s.auto_trade_enabled ? 'on' : 'off');
   const sw = document.getElementById('auto-switch');
   sw.className = 'switch' + (s.auto_trade_enabled ? ' on' : '');
   sw.setAttribute('aria-checked', s.auto_trade_enabled ? 'true' : 'false');
+  sw.disabled = !paper;
   renderRussellToggle(s.scan_russell_1000_only !== false);
   renderCapSelector(s.min_market_cap_millions);
   renderScanner();
@@ -374,7 +393,8 @@ function oppCard(s) {
     ? `<div class="auto-hint">Auto needs ${thresh}/100</div>` : '';
   const sel = s.id === activeSignalId ? ' selected' : '';
   const btnCls = s.direction === 'LONG' ? 'buy' : 'short';
-  const btnLabel = s.direction === 'LONG' ? 'Buy' : 'Short';
+  const paper = lastStatus.execution_mode === 'paper' && lastStatus.paper_verified;
+  const btnLabel = s.direction === 'LONG' ? 'Paper Buy' : 'Paper Short';
   return `<div class="opp${sel}" onclick="selectSymbol('${s.symbol}','${s.id}')">
     <div class="head">
       <span>${s.symbol} <span style="color:${s.direction === 'LONG' ? 'var(--green)' : 'var(--red)'}">${s.direction}</span></span>
@@ -387,7 +407,7 @@ function oppCard(s) {
     ${ageHint}
     ${autoHint}
     <div class="actions" onclick="event.stopPropagation()">
-      <button class="${btnCls}" onclick="approve('${s.id}')">${btnLabel}</button>
+      ${paper ? `<button class="${btnCls}" onclick="approve('${s.id}')">${btnLabel}</button>` : ''}
       <button class="ign" onclick="ignore('${s.id}')">Skip</button>
     </div>
   </div>`;
@@ -398,7 +418,7 @@ function renderOpportunities() {
   const sorted = [...pendingSignals].sort((a, b) => b.confidence - a.confidence);
   el.innerHTML = sorted.length
     ? sorted.map(oppCard).join('')
-    : '<div class="empty">Scanning for VWAP setups…</div>';
+    : `<div class="empty">${lastStatus.scan_filter_errors?.length || lastStatus.last_scan_error ? 'Scanner unavailable. Check scanner status.' : lastStatus.market_session === 'closed' ? 'Market closed. No fresh morning alerts.' : 'No fresh qualifying VWAP setups.'}</div>`;
 }
 
 async function refreshSignals() {
@@ -524,9 +544,11 @@ async function closeTrade(id) {
 window.closeTrade = closeTrade;
 
 async function toggleAuto() {
-  await j('/api/automation/toggle', { method: 'POST' });
-  await refreshCommandBar();
-  toast(lastStatus.auto_trade_enabled ? 'Auto-trade ON' : 'Auto-trade OFF', true);
+  try {
+    await j('/api/automation/toggle', { method: 'POST' });
+    await refreshCommandBar();
+    toast(lastStatus.auto_trade_enabled ? 'Paper automation ON' : 'Paper automation OFF', true);
+  } catch (error) { toast(error.message, false); }
 }
 window.toggleAuto = toggleAuto;
 

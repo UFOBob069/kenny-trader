@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date
 
 from app.models import Signal
+from app.engine.execution_policy import paper_execution_allowed
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +15,7 @@ class RuntimeRules:
     """Mutable copy of the trading rules, editable from the dashboard."""
 
     def __init__(self, cfg) -> None:
-        self.auto_trade_enabled: bool = cfg.auto_trade_enabled
+        self.auto_trade_enabled: bool = cfg.auto_trade_enabled and paper_execution_allowed()
         self.auto_trade_threshold: float = cfg.auto_trade_threshold
         self.max_trades_per_day: int = cfg.max_trades_per_day
         self.max_daily_loss: float = cfg.max_daily_loss
@@ -32,9 +34,30 @@ class RuntimeRules:
         return d
 
     def update(self, patch: dict) -> None:
+        if "execution_mode" in patch or "alpaca_paper" in patch or "broker" in patch:
+            raise ValueError("Execution mode is not dashboard-editable; live trading is unsupported.")
+        if patch.get("auto_trade_enabled") and not paper_execution_allowed():
+            raise ValueError("Automation is available only in Alpaca paper mode.")
+        limits = {'auto_trade_threshold': (0, 100), 'max_trades_per_day': (1, 100),
+                  'max_daily_loss': (1, 100000), 'risk_per_trade': (1, 10000),
+                  'max_position_size': (1, 1000000), 'min_market_cap_millions': (0, 10000000)}
+        changes = {}
         for k, v in patch.items():
-            if hasattr(self, k):
-                setattr(self, k, type(getattr(self, k))(v))
+            if k in ('auto_trade_enabled', 'scan_russell_1000_only'):
+                if not isinstance(v, bool):
+                    raise ValueError(f'{k} must be a boolean')
+                changes[k] = v
+            elif k in limits:
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                    raise ValueError(f'{k} must be a finite number')
+                low, high = limits[k]
+                if not low <= v <= high or (k == 'max_trades_per_day' and int(v) != v):
+                    raise ValueError(f'{k} must be between {low} and {high}')
+                changes[k] = int(v) if k == 'max_trades_per_day' else float(v)
+            else:
+                raise ValueError(f'Unknown setting: {k}')
+        for k, v in changes.items():
+            setattr(self, k, v)
 
 
 class RiskManager:

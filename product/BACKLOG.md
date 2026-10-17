@@ -1,7 +1,22 @@
 # Prioritized Backlog
 
-Updated: 2026-10-17. All items below are planned, not implemented in this audit.
-David confirmed personal use and research/alerts only; automation is out of scope.
+Updated: 2026-10-17. Initial audit completed; implementation subsequently authorized.
+David confirmed personal use, then permitted automated paper tests (D015). Live
+execution remains out of scope. Original acceptance criteria below remain recorded.
+
+## Delivery Status Override
+
+| Item | Current state | Still required |
+| --- | --- | --- |
+| KT-001 | Partial: hard paper transport, research-mode API/engine/adapter guards, IBKR orders blocked | Authentication, privacy and deployment-level credential isolation |
+| KT-005 | Partial: issuer IWB proxy, dated validation/cache, source errors, bounded concurrency, active coverage | Five morning sessions and failure-recovery observation |
+| KT-004 | Partial: accepted pending orders reserve daily slots without double-counting fills | Partial-fill exits, durable reservations and supported-session protection |
+| KT-002/003 | Next paper reliability work, no longer wholly deferred | Broker fill truth, restart reconciliation and idempotency |
+| KT-016 | Next discovery work | Observed/labeled sessions and timing baseline |
+
+See [first delivery](DELIVERY_2026-10-17.md). This table supersedes the original
+"planned/deferred" states for these items, without marking acceptance criteria
+complete when only a safety subset shipped.
 Owner of product/specification: Codex. Engineering owner: Codex after development
 authorization. David supplies only material decisions and bounded review feedback.
 

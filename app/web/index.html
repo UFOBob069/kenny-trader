@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Kenny VWAP Trader</title>
+<title>Kenny Morning Research / Paper Trading</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
@@ -167,8 +167,9 @@
   <div class="cmd-sep"></div>
   <div class="cmd-metric"><span class="lbl">Buying Power</span><span class="val" id="cmd-bp">—</span></div>
   <span id="broker-pill" class="pill off">—</span>
+  <span id="execution-pill" class="pill">RESEARCH</span>
   <span id="market-pill" class="pill">—</span>
-  <button type="button" id="auto-switch" class="switch" role="switch" aria-checked="false" onclick="toggleAuto()" title="Auto-trade"><span class="knob"></span></button>
+  <button type="button" id="auto-switch" class="switch" role="switch" aria-checked="false" onclick="toggleAuto()" title="Automate paper trades only" disabled><span class="knob"></span></button>
   <span id="auto-pill" class="pill off">AUTO</span>
   <div id="russell-toggle" class="cap-select"></div>
   <div id="cap-select" class="cap-select"></div>
@@ -177,6 +178,7 @@
 <main class="workspace">
   <aside class="panel scanner-rail">
     <div class="panel-hd">Scanner <span id="scan-count">—</span></div>
+    <div id="scan-health" style="padding:6px 8px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)"></div>
     <div class="panel-body" id="scanner-list"></div>
   </aside>
 
@@ -198,14 +200,14 @@
       <div class="order-chips" id="order-chips"></div>
     </div>
     <div class="panel position-strip">
-      <div class="panel-hd">Positions</div>
+      <div class="panel-hd">Paper Positions <span title="Order-fill reconciliation is not yet complete">P&amp;L unverified</span></div>
       <div class="position-scroll" id="positions"></div>
     </div>
   </section>
 
   <aside class="action-rail">
     <div class="panel opportunities">
-      <div class="panel-hd">Best Opportunities</div>
+      <div class="panel-hd">Morning Setup Alerts</div>
       <div class="panel-body" id="pending"></div>
     </div>
     <div class="panel context-drawer">
@@ -220,6 +222,6 @@
 </main>
 
 <div id="toast"></div>
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=14"></script>
 </body>
 </html>
