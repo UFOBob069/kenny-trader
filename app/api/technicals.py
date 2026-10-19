@@ -30,7 +30,7 @@ def ticker(value):
 def configuration():
     return dict(default_symbols=DEFAULT_SYMBOLS, feed=settings.alpaca_data_feed,
                 history_configured=bool(settings.alpaca_api_key and settings.alpaca_secret_key),
-                earnings_configured=bool(settings.finnhub_api_key), score_version='daily-v2')
+                earnings_configured=bool(settings.finnhub_api_key), score_version='daily-v3-intraday', refresh_seconds=60)
 
 
 @router.post('/scan')

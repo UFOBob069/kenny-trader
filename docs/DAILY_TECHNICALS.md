@@ -1,6 +1,7 @@
 # Daily Technicals: Research and Scoring
 
-Research date: October 17, 2026. Model version: `daily-v2`.
+Research date: October 17, 2026. Updated October 19, 2026.
+Model version: `daily-v3-intraday` (same weights, current-day inputs enabled).
 
 ## What the evidence supports
 
@@ -30,7 +31,9 @@ trend component may initially be lower than an established trend's component.
 The 20/50/200 overlays are **simple moving averages of split-adjusted daily closes**.
 Both directions are detected for price/200, 20/50, 20/200 and 50/200 crosses.
 A cross requires the previous difference to be zero or opposite in sign and
-the current difference to be strictly on the new side. Intraday wicks do not count.
+the current difference to be strictly on the new side. Intraday wicks alone do not
+count. Today's snapshot close is provisional, not a finalized closing price, so
+today's crosses can appear or disappear before the session ends.
 
 Also detect closes beyond the preceding 20-, 55- and 252-session high/low.
 The event bar is excluded from those ranges. A held crossover must stay on its
@@ -126,9 +129,12 @@ Use next/previous buttons or Left/Right arrows. During review, D marks reviewed,
 S saves and advances, X passes and advances. Input fields and dialogs keep their
 normal keys. Scores, AVWAP state, price-range context, earnings and data warnings
 remain visible in the compact review view. The next two charts preload, using a
-bounded two-minute browser cache. Review decisions persist by scan session date;
+bounded 30-second browser cache. Review decisions persist by scan session date;
 saved picks persist separately and can be revisited with their snapshot dates.
-Refresh scans explicitly. No background schedule, order, or trade is created.
+The visible page refreshes rankings and the selected chart every 60 seconds and
+on returning to the tab. Manual refresh also updates the selected chart. Zoom,
+selection and the active review queue/decisions are preserved. This is page
+polling, not a scheduled task or trade automation. No order is created.
 
 ## Data and Earnings
 
@@ -136,9 +142,23 @@ Refresh scans explicitly. No background schedule, order, or trade is created.
   `1Day`, `adjustment=split`, explicit configured IEX or SIP feed, every pagination
   token consumed. Six calendar years are requested so a 5-year display has SMA200
   warmup. Stocks with shorter histories show only available data.
-- Conservatively exclude the current New York calendar date, even after the
-  closing bell. Rankings are through the prior completed session, displayed as
-  "Through YYYY-MM-DD". No current incomplete candle enters a signal.
+- Keep prior history cached for 15 minutes and merge today's
+  [Alpaca snapshot dailyBar](https://docs.alpaca.markets/us/reference/stocksnapshots-1)
+  from the same configured feed, cached for 30 seconds. Only a valid bar dated
+  today in New York is appended. Never synthesize a candle from a latest trade,
+  reuse a previous-session snapshot as today, or append a future-dated bar.
+  Charts, SMA/AVWAP, rankings and research plans use the same merged bars.
+- Label today's candle, score and plan provisional, including after close until
+  the historical path supplies it the following date. Current-day volume is
+  partial, compared with full prior sessions, not extrapolated/time-normalized.
+  Snapshot check time and latest feed-trade timestamp are distinct; the latter
+  is available on the as-of label's tooltip. Polling is not streaming tick data.
+- Missing snapshots show explicit prior-history/unavailable status. During
+  regular/post-market hours, no current bar means no ranked signal or trade plan;
+  provider failures exclude rankings even outside those hours. Pre-open without
+  a current bar may display prior-session rankings but no plan. Closed periods
+  can show prior-session context. Weekday/time checks are not an exchange holiday
+  calendar; holiday/early-close expected-session handling remains KT-006 work.
 - Split adjustments avoid split-induced crosses. Cash dividends remain in price
   changes: this is a price-chart model, not total-return performance analysis.
 - IEX volume covers one exchange. It is NOT consolidated liquidity and can

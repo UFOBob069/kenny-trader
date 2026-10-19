@@ -93,8 +93,9 @@ Proposed end-of-month gates:
   changing thresholds; establish a baseline first, then set an improvement target.
 - At least 4 of the last 5 observed top-10 review sessions finish within 10 minutes.
 - At least 4 of those 5 are rated useful by David, with skip reasons captured.
-- Ranked data matches the last expected completed exchange session, or is excluded
-  with a clear reason. Calendar coverage is disclosed independently of HTTP success.
+- Ranked data includes today's provisional session when available, with explicit
+  as-of/coverage labels (D018). Missing current-day bars during regular/post-market
+  hours are excluded. Calendar coverage is disclosed independently of HTTP success.
 - At least 95% of the declared daily universe has the required completed history
   during the evaluation window; no missing or stale rows silently rank.
 - No unauthenticated trading control, no implicit expansion of trading authority,

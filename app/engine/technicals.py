@@ -1,4 +1,4 @@
-"""End-of-day chart research. Heuristic scores, never trade instructions."""
+"""Daily-bar chart research, including provisional sessions. Heuristic scores."""
 from __future__ import annotations
 
 from datetime import date
@@ -61,7 +61,7 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
     base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None,
                 eligible=False, score=0, direction='neutral', signals=[], breakdown=[], warnings=[])
     if len(data) < 220:
-        return {**base, 'warnings': ['At least 220 completed daily bars are required.'],
+        return {**base, 'warnings': ['At least 220 usable daily bars are required.'],
                 'history_bars': len(data), 'close': number(data.close.iloc[-1]) if len(data) else None}
     last = data.iloc[-1]
     avwap = anchored_vwap(data)

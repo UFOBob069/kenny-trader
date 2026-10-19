@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const base = process.env.PREVIEW_URL || 'http://127.0.0.1:8012';
 const output = process.env.SCREENSHOT_DIR || path.join(process.env.TEMP, 'kenny-technicals-qa');
+let priceShift = 0;
 
 function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   const bars = [];
@@ -15,6 +16,8 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     const open = close+1.2*Math.sin(i/3);
     bars.push({time:date.toISOString().slice(0,10),open,high:Math.max(close,open)+2,low:Math.min(close,open)-2,close,volume:2000000+Math.sin(i)*900000});
   }
+  bars.at(-1).close += priceShift;
+  bars.at(-1).high += priceShift;
   const count = Math.min(bars.length,years*252);
   const visible = bars.slice(-count);
   const averages = {};
@@ -45,7 +48,11 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   const trade_plan = {status:'conditional',direction,entry,stop:entry+(direction === 'bullish' ? -4 : 4),
     target:entry+(direction === 'bullish' ? 8 : -8),risk_per_share:4,risk_pct:2.5,reward_risk:2,
     reasons:[],warnings:['Research plan; no order submitted.'],entry_rule:'Next-session breakout trigger',stop_rule:'Five-session structure plus ATR buffer',target_rule:'2R planning objective'};
-  return {symbol,years,bars:visible,averages,events:[event],summary,avwap,trade_plan,feed:'sip',adjustment:'split',interval:'1D'};
+  const current_day = {status:'provisional',date:summary.as_of,fetched_at:'2026-10-19T15:00:00Z',trade_at:'2026-10-19T14:59:59Z'};
+  summary.provisional = true;
+  summary.current_day = current_day;
+  trade_plan.provisional = true;
+  return {symbol,years,bars:visible,averages,events:[event],summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
 (async () => {
@@ -59,6 +66,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   await page.waitForFunction(()=>document.querySelector('#scan-status').textContent.includes('configure Alpaca'));
   assert.match(await page.locator('#chart-state').innerText(),/not configured/);
   let delay = false;
+  let chartFailure = false;
   await page.route('**/api/technicals/**',async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname;
@@ -66,11 +74,11 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     if (endpoint.endsWith('/config')) data = {default_symbols:['AAPL','MSFT','NVDA'],history_configured:true,earnings_configured:true,feed:'sip'};
     if (endpoint.endsWith('/scan')) {
       const symbols = route.request().postDataJSON().symbols.split(' ');
-      data = {items:symbols.map(s=>fixture(s,1).summary),generated_at:'2026-10-17T16:00:00Z',feed:'sip'};
+      data = {items:symbols.map(s=>fixture(s,1).summary),current_day_count:symbols.length,generated_at:'2026-10-19T15:00:00Z',feed:'sip'};
     }
     if (endpoint.includes('/chart/')) {
       const symbol = endpoint.split('/').at(-1);
-      if (symbol === 'ERROR') return route.fulfill({status:503,json:{detail:'Feed access denied.'}});
+      if (symbol === 'ERROR' || chartFailure) return route.fulfill({status:503,json:{detail:'Feed access denied.'}});
       if (delay && symbol === 'AAPL') await new Promise(r=>setTimeout(r,600));
       data = fixture(symbol,Number(url.searchParams.get('years')),url.searchParams.get('anchor') || 'swing_high',url.searchParams.get('anchor_date'));
     }
@@ -90,6 +98,9 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#trade-plan').innerText(),/Stop loss/);
   assert.match(await page.locator('#trade-plan').innerText(),/2R objective/);
   assert.match(await page.locator('#plan-status').innerText(),/conditional/);
+  assert.match(await page.locator('#plan-status').innerText(),/provisional/);
+  assert.match(await page.locator('#as-of').innerText(),/Today \/ provisional.*Checked/);
+  assert.match(await page.locator('#scan-status').innerText(),/3\/3 with today's provisional candle/);
   assert.equal(await page.locator('.rank-row').count(),3);
   assert.equal(await page.locator('#chart-state').isVisible(),false);
   assert(await page.evaluate(() => chart.timeScale().timeToCoordinate('2025-02-20') > chart.timeScale().timeToCoordinate('2025-01-17')),'Future earnings must be after the last real candle');
@@ -117,6 +128,30 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   await page.keyboard.press('s');
   await page.waitForFunction(()=>state.chartData?.symbol === 'NVDA');
   assert.equal(await page.evaluate(()=>state.review.decisions.AAPL),'saved');
+  await page.waitForFunction(()=>document.querySelector('#earnings-state').textContent.includes('3 dates'));
+  await page.evaluate(()=>chart.timeScale().setVisibleLogicalRange({from:180,to:240}));
+  await page.waitForFunction(()=>chart.timeScale().getVisibleLogicalRange().from === 180);
+  const range = await page.evaluate(()=>chart.timeScale().getVisibleLogicalRange());
+  const oldClose = await page.evaluate(()=>state.chartData.summary.close);
+  priceShift = 1;
+  await page.evaluate(()=>refreshDaily());
+  assert.equal(await page.evaluate(()=>state.chartData.summary.close),oldClose+1);
+  assert.equal(await page.evaluate(()=>candles.data().at(-1).close),oldClose+1);
+  assert.equal(await page.evaluate(()=>state.symbol),'NVDA');
+  assert.equal(await page.evaluate(()=>state.reviewActive && state.review.decisions.AAPL === 'saved'),true);
+  assert.deepEqual(await page.evaluate(()=>chart.timeScale().getVisibleLogicalRange()),range);
+  chartFailure = true;
+  await page.evaluate(()=>refreshDaily());
+  assert.match(await page.locator('#as-of').innerText(),/Refresh failed/);
+  assert.match(await page.locator('#plan-status').innerText(),/Unavailable/);
+  assert.equal(await page.evaluate(()=>planLines.length),0);
+  chartFailure = false;
+  priceShift = 2;
+  await page.locator('#rescan').click();
+  await page.waitForFunction(value=>state.chartData.summary.close === value,oldClose+2);
+  assert.match(await page.locator('#as-of').innerText(),/Today \/ provisional/);
+  assert.equal(await page.evaluate(()=>state.reviewActive),true);
+  await page.evaluate(()=>fitChart());
   await page.keyboard.press('ArrowLeft');
   await page.waitForFunction(()=>state.chartData?.symbol === 'AAPL');
   await page.keyboard.press('ArrowRight');
@@ -188,6 +223,6 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.equal(await page.locator('[data-years="5"]').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>Boolean(state.savedPicks.AAPL)),true);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
+  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
   await browser.close();
 })().catch(error=>{console.error(error);process.exit(1);});

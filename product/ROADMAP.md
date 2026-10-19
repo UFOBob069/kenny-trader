@@ -70,8 +70,9 @@ Dates: Oct 25-31. Theme: correct data and strategy interpretation before tuning.
 
 - KT-016: label/replay candidate windows; separate stale feed, detection, ranking,
   liquidity and usability failures. Select the smallest evidence-supported fix.
-- KT-006: establish expected completed-session semantics and calendar-aware
-  freshness for both morning timing and daily rankings.
+- KT-006: current-day daily snapshots and provisional minute refresh delivered
+  Oct 19 (D018). Finish exchange-calendar/early-close freshness semantics for both
+  morning timing and daily rankings.
 - KT-008: verify feed-aware liquidity inputs and evaluate entitled historical SIP
   for daily research independently of real-time morning-data requirements.
 - KT-007 discovery: measure historical versus upcoming earnings coverage; choose

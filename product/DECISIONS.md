@@ -74,6 +74,24 @@ four concurrent operations. This addresses missing RVOL qualification outside th
 initial twelve. Do not loosen gap, RVOL, liquidity or technical pattern thresholds
 until labeled morning observations support a change.
 
+### D018 / 2026-10-19 / Implemented: Current-Day Daily Technicals
+
+David requires current-day data, superseding the completed-session-only daily
+input policy. Keep cached split-adjusted history and merge the same feed's valid
+current New York-date snapshot daily bar. Refresh the visible page every minute;
+recompute overlays, rankings and research plans with provisional labels. Preserve
+review decisions and zoom. No source bar means no invented candle; missing
+current-day coverage during regular/post-market hours excludes ranked signals.
+Snapshot errors must not silently masquerade as today's opportunities. Scoring
+weights are unchanged; version `daily-v3-intraday` distinguishes the input policy.
+Partial volume is not time-normalized. Exchange-calendar/early-close semantics
+remain open under KT-006. Daily plans stay research-only; no execution changes.
+
+Validation: 200 Python tests, 7 Node tests and the browser Daily Technicals suite
+passed, including snapshot cache/date rollover, current SMA/AVWAP/plan inputs,
+missing/malformed bars, denied feed, preserved review/zoom, refresh failure and
+recovery, desktop and 320/390px mobile screenshots.
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:

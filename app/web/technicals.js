@@ -10,11 +10,13 @@ let chart, candles, volume, earningsSeries, avwapSeries;
 const averages = {};
 const chartCache = new Map();
 let planLines = [];
+let refreshing = false;
+let refreshGeneration = 0;
 
 function renderTradePlan(plan) {
   planLines.forEach(line => candles?.removePriceLine(line));
   planLines = [];
-  $('plan-status').textContent = plan ? `${plan.direction || ''} / ${plan.status}` : 'No plan available';
+  $('plan-status').textContent = plan ? `${plan.direction || ''} / ${plan.status}${plan.provisional ? ' / provisional' : ''}` : 'No plan available';
   if (!plan) { $('trade-plan').textContent = ''; return; }
   const levels = plan.entry ? `<div class="plan-levels"><div><span>Entry trigger</span><strong>$${price(plan.entry)}</strong></div><div><span>Stop loss</span><strong class="negative">$${price(plan.stop)}</strong></div><div><span>2R objective</span><strong>$${price(plan.target)}</strong></div><div><span>Risk / share</span><strong>$${price(plan.risk_per_share)}</strong><span>${plan.risk_pct}% / ${plan.reward_risk}R</span></div></div>` : '';
   const notes = [...(plan.reasons || []), plan.entry_rule, plan.stop_rule, plan.target_rule,
@@ -53,7 +55,7 @@ function renderRankings() {
   state.visible = filteredItems(source, state.direction, $('signal-filter').value,
     Number($('min-score').value) || 0, state.savedOnly ? false : $('recent-only').checked).sort((a,b) => b.score - a.score);
   $('rankings').innerHTML = state.visible.map(item => `<button class="rank-row ${item.symbol === state.symbol ? 'selected' : ''}" data-symbol="${escapeHtml(item.symbol)}" aria-label="Review ${escapeHtml(item.symbol)}">
-    <span><b>${escapeHtml(item.symbol)}</b><small>${escapeHtml(item.trigger?.label || (item.history_bars < 220 ? 'Insufficient history' : 'No recent held signal'))}${item.trigger ? ` &middot; ${item.trigger.age}d` : ''}</small>${state.savedPicks[item.symbol] ? `<small class="saved-label">Saved &middot; ${escapeHtml(item.as_of)}</small>` : ''}</span>
+    <span><b>${escapeHtml(item.symbol)}</b><small>${escapeHtml(item.trigger?.label || (item.history_bars < 220 ? 'Insufficient history' : 'No recent held signal'))}${item.trigger ? ` &middot; ${item.trigger.age}d` : ''}</small><small>${escapeHtml(item.as_of || 'No bars')}${item.provisional ? ' &middot; provisional' : ' &middot; prior sessions'}</small>${state.savedPicks[item.symbol] ? '<small class="saved-label">Saved</small>' : ''}</span>
     <span class="score ${item.direction}">${item.score.toFixed(0)}</span><span class="${item.change_pct >= 0 ? 'positive' : 'negative'}">${signed(item.change_pct)}</span></button>`).join('') || '<div class="empty">No charts match these filters.</div>';
   $('result-count').textContent = `${state.visible.length} / ${state.items.length} charts`;
   $('universe-count').textContent = `${state.universe.length} symbols`;
@@ -127,8 +129,8 @@ function cachedChart(symbol) {
   if (state.anchor === 'custom') params.set('anchor_date',state.anchorDate);
   const url = `/api/technicals/chart/${encodeURIComponent(symbol)}?${params}`;
   const existing = chartCache.get(url);
-  if (existing && Date.now() - existing.at < 120000) return existing.promise;
-  const promise = request(url).catch(error => { chartCache.delete(url); throw error; });
+  if (existing && Date.now() - existing.at < 30000) return existing.promise;
+  const promise = request(url).catch(error => { if (chartCache.get(url)?.promise === promise) chartCache.delete(url); throw error; });
   chartCache.set(url,{promise,at:Date.now()});
   while (chartCache.size > 40) chartCache.delete(chartCache.keys().next().value);
   return promise;
@@ -140,30 +142,66 @@ function prefetchNext() {
   if (index >= 0) for (const symbol of symbols.slice(index + 1,index + 3)) cachedChart(symbol).catch(() => {});
 }
 
-async function scan() {
-  state.reviewActive = false;
+async function scan({background = false} = {}) {
+  if (background && $('rescan').disabled) return;
   chartCache.clear();
   const generation = ++state.scanGeneration;
   $('rescan').disabled = true;
   $('scan-status').classList.remove('error');
-  $('scan-status').textContent = `Scanning ${state.universe.length} symbols...`;
-  state.items = [];
+  if (!background) $('scan-status').textContent = `Scanning ${state.universe.length} symbols...`;
   renderRankings();
   try {
     const result = await request('/api/technicals/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbols:state.universe.join(' ')})});
     if (generation !== state.scanGeneration) return;
     state.items = result.items;
     state.reviewDate = result.review_date || result.items.find(i => i.as_of)?.as_of || '';
-    $('scan-status').textContent = `${result.feed.toUpperCase()} feed · Completed sessions · ${new Date(result.generated_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+    $('scan-status').textContent = `${result.feed.toUpperCase()} feed · ${result.current_day_count || 0}/${result.items.length} with today's provisional candle · Checked ${new Date(result.generated_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
     renderRankings();
     if (!state.symbol && state.visible.length) selectSymbol(state.visible[0].symbol);
   } catch (error) {
     if (generation !== state.scanGeneration) return;
-    $('scan-status').textContent = error.message;
+    $('scan-status').textContent = `Refresh failed; rankings may be stale. ${error.message}`;
     $('scan-status').classList.add('error');
   } finally {
     if (generation === state.scanGeneration) $('rescan').disabled = false;
   }
+  if (generation === state.scanGeneration) await refreshCurrentChart();
+}
+
+function drawChartData(data) {
+  for (const w of [20,50,200]) averages[w].setData(data.averages[w] || []);
+  avwapSeries.setData(data.avwap?.points || []);
+  avwapSeries.setMarkers(data.avwap?.anchor?.available && data.avwap.points.some(p => p.time === data.avwap.anchor.date) ? [{time:data.avwap.anchor.date,position:'aboveBar',shape:'square',color:'#f5a07f',text:'Anchor',size:.5}] : []);
+  volume.setData(data.bars.map(b => ({time:b.time,value:b.volume,color:b.close >= b.open ? '#54c8a045' : '#f47b7d45'})));
+  updateMarkers();
+}
+
+async function refreshCurrentChart() {
+  if (!state.chartData) return;
+  const generation = state.generation;
+  const refresh = ++refreshGeneration;
+  try {
+    const data = await cachedChart(state.symbol);
+    if (generation !== state.generation || refresh !== refreshGeneration) return;
+    const range = chart?.timeScale().getVisibleLogicalRange();
+    state.chartData = data;
+    renderSummary(data);
+    if (chart && data.bars.length) {
+      drawChartData(data);
+      if (range) chart.timeScale().setVisibleLogicalRange(range);
+    }
+  } catch (error) {
+    if (generation !== state.generation || refresh !== refreshGeneration) return;
+    $('as-of').textContent = `Through ${state.chartData?.summary.as_of || '--'} · Refresh failed; data may be stale`;
+    renderTradePlan(null);
+    $('plan-status').textContent = 'Unavailable until refresh succeeds';
+  }
+}
+
+async function refreshDaily() {
+  if (document.hidden || refreshing || $('rescan').disabled) return;
+  refreshing = true;
+  try { await scan({background:true}); } finally { refreshing = false; }
 }
 
 function initChart() {
@@ -211,7 +249,7 @@ function chartMarkers(data, earnings, showEvents, showEarnings) {
   const markers = showEvents ? data.events.filter(e => e.kind.startsWith('ma') || ['price200','avwap','range252'].includes(e.kind)).map(e => ({
     time:e.time, position:e.direction === 'bullish' ? 'belowBar' : 'aboveBar',
     color:e.direction === 'bullish' ? '#54c8a0' : '#f47b7d', shape:e.direction === 'bullish' ? 'arrowUp' : 'arrowDown',
-    text:e.label.replace('SMA ',''), size:.5,
+    text:e.label.replace('SMA ','') + (e.provisional ? ' (provisional)' : ''), size:.5,
   })) : [];
   if (showEarnings) for (const e of earnings.filter(e => first && e.date >= first)) {
     markers.push({time:e.date, position:'aboveBar', color:'#edb85e', shape:'circle', text:'E', size:.6});
@@ -250,15 +288,18 @@ function renderSummary(data) {
   $('last-price').textContent = `$${price(summary.close)}`;
   $('day-change').textContent = signed(summary.change_pct);
   $('day-change').className = summary.change_pct >= 0 ? 'positive' : 'negative';
-  $('as-of').textContent = `Through ${summary.as_of || '--'}`;
+  const current = data.current_day;
+  const checked = current?.fetched_at ? ` · Checked ${new Date(current.fetched_at).toLocaleTimeString()}` : '';
+  $('as-of').textContent = `Through ${summary.as_of || '--'} · ${summary.provisional ? 'Today / provisional' : 'Prior sessions'}${checked}`;
+  $('as-of').title = current?.trade_at ? `Latest feed trade: ${new Date(current.trade_at).toLocaleString()}. Snapshot check time is not the last trade time.` : 'Last trade timestamp unavailable.';
   for (const w of [20,50,200]) $(`ma${w}-value`).textContent = price(summary.sma?.[w]);
   $('feed-label').textContent = `${data.feed.toUpperCase()} · Split adjusted · ${data.bars.length} daily candles`;
   $('total-score').textContent = `${summary.score.toFixed(1)} / 100`;
   $('total-score').className = summary.direction;
-  $('score-context').textContent = `${summary.direction.toUpperCase()} · ${summary.eligible ? 'Recent held signal' : 'Not ranked'} · Not a win probability`;
+  $('score-context').textContent = `${summary.direction.toUpperCase()} · ${summary.provisional ? 'Provisional score' : summary.eligible ? 'Recent held signal' : 'Not ranked'} · Not a win probability`;
   $('score-breakdown').innerHTML = summary.breakdown.map(row => `<div class="score-row"><div>${escapeHtml(row.label)}<small>${escapeHtml(row.detail)}</small>${row.maximum ? `<div class="score-meter"><span style="width:${Math.min(100,Math.max(0,row.points / row.maximum * 100))}%"></span></div>` : ''}</div><strong class="${row.points < 0 ? 'negative' : ''}">${row.points}${row.maximum ? ` / ${row.maximum}` : ''}</strong></div>`).join('');
   $('risk-flags').innerHTML = summary.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('') + (data.feed === 'iex' ? '<li>IEX-only volume, not consolidated market liquidity.</li>' : '');
-  $('signal-events').innerHTML = summary.signals.slice().reverse().map(e => `<div class="event-row"><time>${e.time}</time><span class="${e.direction}">${escapeHtml(e.label)} ${e.direction === 'bullish' ? 'up' : 'down'}</span><small>${e.held ? 'Held' : 'Failed'}</small></div>`).join('') || '<div class="empty">No crosses or range breaks in the last 10 sessions.</div>';
+  $('signal-events').innerHTML = summary.signals.slice().reverse().map(e => `<div class="event-row"><time>${e.time}</time><span class="${e.direction}">${escapeHtml(e.label)} ${e.direction === 'bullish' ? 'up' : 'down'}</span><small>${e.provisional ? 'Provisional' : e.held ? 'Held' : 'Failed'}</small></div>`).join('') || '<div class="empty">No crosses or range breaks in the last 10 sessions.</div>';
   const vwap = data.avwap;
   $('avwap-value').textContent = price(vwap?.value);
   $('anchor-info').textContent = vwap?.anchor?.available ? `${vwap.anchor.date} · ${vwap.method}` : vwap?.anchor?.reason || 'Anchored VWAP unavailable';
@@ -307,11 +348,7 @@ async function selectSymbol(symbol) {
     state.chartData = data;
     renderSummary(data);
     if (chart && data.bars.length) {
-      for (const w of [20,50,200]) averages[w].setData(data.averages[w] || []);
-      avwapSeries.setData(data.avwap?.points || []);
-      avwapSeries.setMarkers(data.avwap?.anchor?.available && data.avwap.points.some(p => p.time === data.avwap.anchor.date) ? [{time:data.avwap.anchor.date,position:'aboveBar',shape:'square',color:'#f5a07f',text:'Anchor',size:.5}] : []);
-      volume.setData(data.bars.map(b => ({time:b.time,value:b.volume,color:b.close >= b.open ? '#54c8a045' : '#f47b7d45'})));
-      updateMarkers();
+      drawChartData(data);
       fitChart();
       $('chart-state').hidden = true;
       prefetchNext();
@@ -441,6 +478,8 @@ async function init() {
     const last = saved('kenny.daily.symbol', '');
     if (typeof last === 'string' && last) selectSymbol(last);
     scan();
+    setInterval(refreshDaily, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDaily(); });
   } catch (error) {
     $('scan-status').textContent = error.message;
     $('scan-status').classList.add('error');

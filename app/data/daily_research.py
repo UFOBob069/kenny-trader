@@ -14,6 +14,7 @@ import httpx
 from app.config import settings
 from app.engine.technicals import analyze, chart_payload
 from app.engine.trade_plan import daily_trade_plan
+from app.data.market_hours import market_session
 
 ET = ZoneInfo('America/New_York')
 DEFAULT_SYMBOLS = 'AAPL MSFT NVDA AMZN GOOGL META TSLA AVGO AMD INTC QCOM MU ARM SMCI PLTR ORCL CRM ADBE NOW SHOP UBER NFLX DIS JPM BAC GS MS V MA PYPL COIN HOOD XOM CVX COP SLB CAT DE GE BA LMT COST WMT TGT HD LOW NKE SBUX MCD LLY UNH JNJ ABBV MRK PFE AMGN GILD NEM FCX F GM SOFI'.split()
@@ -32,15 +33,19 @@ def symbols_from_text(value: str) -> list[str]:
     return symbols
 
 
-def normalize_bars(rows: list[dict], today: date) -> list[dict]:
+def normalize_bars(rows: list[dict], today: date, include_current=False) -> list[dict]:
     result = {}
     for row in rows:
         try:
+            if not isinstance(row, dict) or not isinstance(row.get('t'), str):
+                continue
             timestamp = datetime.fromisoformat(row['t'].replace('Z', '+00:00'))
+            if timestamp.tzinfo is None:
+                continue
             day = timestamp.astimezone(ET).date()
             values = [float(row[k]) for k in ('o', 'h', 'l', 'c', 'v')]
             o, h, low, c, v = values
-            if day >= today or not all(math.isfinite(x) for x in values):
+            if day > today or (day == today and not include_current) or not all(math.isfinite(x) for x in values):
                 continue
             if min(o, h, low, c) <= 0 or v < 0 or low > min(o, c) or h < max(o, c) or low > h:
                 continue
@@ -62,6 +67,7 @@ class DailyResearch:
         self._cache: OrderedDict = OrderedDict()
         self._bars_lock = asyncio.Lock()
         self._earnings_lock = asyncio.Lock()
+        self._snapshot_lock = asyncio.Lock()
 
     async def close(self):
         await self.http.aclose()
@@ -127,6 +133,60 @@ class DailyResearch:
                     self._save(('bars', symbol, today, feed), result[symbol], 900 if result[symbol] else 60)
             return result
 
+    async def current_histories(self, symbols: list[str], today: date):
+        """Merge only today's snapshot bar into split-adjusted cached history."""
+        history = await self.histories(symbols, today)
+        feed = settings.alpaca_data_feed.lower()
+        async with self._snapshot_lock:
+            snapshots = {s: self._cached(('snapshot', s, today, feed)) for s in symbols}
+            missing = [s for s in symbols if snapshots[s] is None]
+            for offset in range(0, len(missing), 100):
+                batch = missing[offset:offset + 100]
+                fetched_at = datetime.now(timezone.utc).isoformat()
+                error = None
+                try:
+                    payload = await self._get('https://data.alpaca.markets/v2/stocks/snapshots',
+                        params={'symbols': ','.join(batch), 'feed': feed},
+                        headers={'APCA-API-KEY-ID': settings.alpaca_api_key,
+                                 'APCA-API-SECRET-KEY': settings.alpaca_secret_key})
+                    if not isinstance(payload, dict):
+                        raise ResearchDataError('Current-day snapshot response was incomplete.')
+                except ResearchDataError as exc:
+                    error, payload = str(exc), {}
+                for symbol in batch:
+                    item = payload.get(symbol) or {}
+                    item = item if isinstance(item, dict) else {}
+                    raw = item.get('dailyBar')
+                    parsed = normalize_bars([raw], today, include_current=True) if isinstance(raw, dict) else []
+                    bar = next((b for b in parsed if b['time'] == today.isoformat()), None)
+                    latest_trade = item.get('latestTrade') or {}
+                    trade_at = latest_trade.get('t') if isinstance(latest_trade, dict) else None
+                    message = error or ("Today's candle is provisional; price, volume and signals can change."
+                                        if bar else 'No current-day bar returned by the selected feed; showing prior history.')
+                    value = dict(bar=bar, status='unavailable' if error else 'provisional' if bar else 'not_returned',
+                                 fetched_at=fetched_at, trade_at=trade_at, date=today.isoformat(), message=message)
+                    snapshots[symbol] = value
+                    self._save(('snapshot', symbol, today, feed), value, 30)
+        merged = {s: [*history[s], *([snapshots[s]['bar']] if snapshots[s]['bar'] else [])] for s in symbols}
+        metadata = {s: {k: v for k, v in snapshots[s].items() if k != 'bar'} for s in symbols}
+        return merged, metadata
+
+    @staticmethod
+    def current_context(summary, metadata):
+        summary['current_day'] = metadata
+        summary['provisional'] = metadata['status'] == 'provisional'
+        summary['warnings'].append(metadata['message'])
+        if summary['provisional']:
+            summary['warnings'].append('Current-day volume is partial and not adjusted for time of day.')
+        elif metadata['status'] == 'unavailable' or market_session() in ('regular', 'post'):
+            summary['eligible'] = False
+            summary['warnings'].append('Current-day data missing; excluded from ranked signals until refreshed.')
+        for event in summary.get('signals', []):
+            event['provisional'] = event['time'] == metadata['date']
+        if summary.get('trigger'):
+            summary['trigger']['provisional'] = summary['trigger']['time'] == metadata['date']
+        return summary
+
     async def earnings(self, symbol: str | None, start: date, end: date) -> dict:
         key = ('earnings', symbol, start, end)
         cached = self._cached(key)
@@ -178,7 +238,7 @@ class DailyResearch:
 
     async def scan(self, symbols: list[str]) -> dict:
         today = datetime.now(ET).date()
-        histories = await self.histories(list(dict.fromkeys([*symbols, 'SPY'])), today)
+        histories, current = await self.current_histories(list(dict.fromkeys([*symbols, 'SPY'])), today)
         calendar = await self.earnings(None, today, today + timedelta(days=30))
         benchmark = histories.get('SPY', [])
         items = []
@@ -186,15 +246,16 @@ class DailyResearch:
             dates = [e for e in calendar['events'] if e['symbol'] == symbol]
             item = await asyncio.to_thread(analyze, symbol, histories[symbol], benchmark, today,
                                            dates if calendar['status'] == 'available' else None)
-            items.append(item)
+            items.append(self.current_context(item, current[symbol]))
         items.sort(key=lambda i: (i['eligible'], i['score']), reverse=True)
         return dict(items=items, symbols=symbols, generated_at=datetime.now(timezone.utc).isoformat(),
-                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v2',
+                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v3-intraday',
+                    current_day_count=sum(i['provisional'] for i in items), refresh_seconds=60,
                     review_date=max((i['as_of'] for i in items if i['as_of']), default=today.isoformat()))
 
     async def chart(self, symbol: str, years: int, anchor='swing_high', anchor_date=None) -> dict:
         today = datetime.now(ET).date()
-        histories = await self.histories(list(dict.fromkeys([symbol, 'SPY'])), today)
+        histories, current = await self.current_histories(list(dict.fromkeys([symbol, 'SPY'])), today)
         bars = histories[symbol]
         if not bars:
             raise ResearchDataError(f'No daily bars returned for {symbol} on the configured feed.')
@@ -202,6 +263,7 @@ class DailyResearch:
         dates = [e for e in calendar['events'] if e['symbol'] == symbol]
         summary = await asyncio.to_thread(analyze, symbol, bars, histories['SPY'], today,
                                           dates if calendar['status'] == 'available' else None)
+        self.current_context(summary, current[symbol])
         past_earnings = None
         if anchor == 'earnings':
             past = await self.earnings(symbol, today - timedelta(days=366), today)
@@ -209,5 +271,16 @@ class DailyResearch:
         payload = await asyncio.to_thread(chart_payload, bars, years, today, anchor, anchor_date, past_earnings)
         if anchor == 'earnings':
             payload['avwap']['calendar_status'] = past['status']
-        return dict(**payload, summary=summary, trade_plan=daily_trade_plan(summary, bars, today), symbol=symbol, years=years,
+        plan = daily_trade_plan(summary, bars, today)
+        plan['provisional'] = summary['provisional']
+        if summary['provisional']:
+            plan['warnings'].append("Intraday plan: today's candle and these levels are provisional, not close-confirmed.")
+            plan['validity'] = 'Recalculate on each refresh; current-day levels can move before the close.'
+        elif current[symbol]['status'] == 'unavailable' or market_session() in ('pre', 'regular', 'post'):
+            plan = dict(version='daily-plan-v1', status='unavailable', execution='research_only',
+                        direction=summary['direction'], as_of=summary['as_of'], reasons=[current[symbol]['message']], warnings=[])
+        for event in payload['events']:
+            event['provisional'] = event['time'] == today.isoformat()
+        return dict(**payload, summary=summary, trade_plan=plan, symbol=symbol, years=years,
+                    current_day=current[symbol], refresh_seconds=60,
                     feed=settings.alpaca_data_feed, adjustment='split', interval='1D')

@@ -64,7 +64,8 @@ the score's trigger/anchor, not a user-selected display-only AVWAP anchor.
   leaving under 1.5R, stop distance over 8%, or price over 3 ATR from SMA 20.
 - No plan for invalid inputs or history older than three calendar days. This
   conservative check is not a full exchange-calendar freshness fix.
-- Recalculate after the next completed bar. Skip gaps over 0.25 ATR beyond entry.
+- Recalculate on each current-day refresh (D018, October 19); intraday plans are
+  provisional, not close-confirmed. Skip gaps over 0.25 ATR beyond entry.
   Unknown earnings, borrow, live liquidity and gap risk remain explicit. Daily
   plans add no sizing or automatic execution.
 

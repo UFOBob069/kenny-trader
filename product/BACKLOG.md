@@ -90,13 +90,16 @@ isolation. Estimates are engineering days, ranges rather than commitments.
 ### KT-006 / P1 / Exchange-session freshness contract
 
 - Evidence: F07, four-day-old synthetic chart still eligible; current-day exclusion.
-- Outcome: users know which completed session they are reviewing; absent recent
+- Outcome: users know which session they are reviewing and whether it is provisional; absent recent
   data cannot masquerade as today's opportunity set.
 - Acceptance: use an exchange-calendar implementation with holiday/early-close
-  tests; specify publication time after close; rank only the expected completed
-  session; explicit partial/stale exclusions; session-aware review keys; test
+  tests; specify publication time after close; distinguish current provisional
+  data from finalized sessions; explicit missing/stale exclusions; session-aware review keys; test
   holidays, DST, early closes, missing symbols, after-close and pre-open behavior.
-- State: planned. Dependencies: KT-001; supports both workflows. Estimate: 1-2 days;
+- State: partly delivered 2026-10-19 (D018). Current-day snapshot merge, minute
+  refresh, provisional labels and missing-session exclusions tested. Exchange
+  holidays/early closes and calendar-aware age checks remain planned.
+  Dependencies: KT-001; supports both workflows. Estimate: 1-2 days;
   confidence high. Do not use five calendar days as a substitute for session age.
 
 ### KT-011 / P1 / Minimal evidence and reliability instrumentation
