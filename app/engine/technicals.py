@@ -8,9 +8,10 @@ import pandas as pd
 from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 from app.engine.anchored_vwap import anchored_vwap, discovery_context, public_avwap
+from app.engine.volatility import add_volatility, volatility_context, volatility_score, volatility_payload
 
 
-def frame(bars: list[dict]) -> pd.DataFrame:
+def frame(bars: list[dict], studies=True) -> pd.DataFrame:
     data = pd.DataFrame(bars)
     if data.empty:
         return data
@@ -19,10 +20,11 @@ def frame(bars: list[dict]) -> pd.DataFrame:
         data[f'sma{window}'] = SMAIndicator(data.close, window).sma_indicator()
     if len(data) >= 14:
         data['atr'] = AverageTrueRange(data.high, data.low, data.close, 14).average_true_range()
+        data.loc[data.index[:13], 'atr'] = float('nan')
     else:
         data['atr'] = float('nan')
     data['volume_ratio'] = data.volume / data.volume.shift(1).rolling(20).mean().replace(0, float('nan'))
-    return data
+    return add_volatility(data) if studies else data
 
 
 def number(value):
@@ -58,9 +60,10 @@ def events(data: pd.DataFrame) -> list[dict]:
 def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
             earnings: list[dict] | None = None) -> dict:
     data = frame(bars)
-    base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None,
+    base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None, score_version='daily-v4-volatility',
                 eligible=False, score=0, direction='neutral', signals=[], breakdown=[], warnings=[],
-                chart_assessment=dict(version='chart-v1', available=False, score=None,
+                volatility=volatility_context(data),
+                chart_assessment=dict(version='chart-v2-volatility', available=False, score=None,
                     reason=f'Chart score needs 220 usable daily bars; {len(data)} available.'))
     if len(data) < 220:
         return {**base, 'warnings': ['At least 220 usable daily bars are required.'],
@@ -74,7 +77,7 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
     active = [e for e in recent if e['held']]
     stale = (today - date.fromisoformat(last.time)).days > 5
     # Align benchmark to the same dates. No forward filling or future benchmark information.
-    bench = frame(benchmark)
+    bench = frame(benchmark, studies=False)
     relative = None
     market = None
     if not bench.empty:
@@ -130,9 +133,9 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
         days_to_earnings = (date.fromisoformat(next_earnings['date']) - today).days if next_earnings else None
         penalty_earnings = 10 if days_to_earnings is not None and days_to_earnings <= 7 else 0
         components = [
-            ('Recent held trigger', trigger_points, 30, trigger['label'] if trigger else 'No held trigger in 10 sessions'),
-            ('Trend alignment + slope', (alignment + slope) * .8, 20, 'Price / 20 / 50 / 200 and 20-session slopes'),
-            ('Trigger-day volume', volume_points, 20, f'{number(vol)}x prior 20 sessions' if pd.notna(vol) else 'Unavailable'),
+            ('Recent held trigger', trigger_points * 25 / 30, 25, trigger['label'] if trigger else 'No held trigger in 10 sessions'),
+            ('Trend alignment + slope', (alignment + slope) * .6, 15, 'Price / 20 / 50 / 200 and 20-session slopes'),
+            ('Trigger-day volume', volume_points * .75, 15, f'{number(vol)}x prior 20 sessions' if pd.notna(vol) else 'Unavailable'),
             ('63-session strength vs SPY', relative_points, 10, f'{number(relative)} percentage points' if relative is not None else 'Unavailable'),
             ('SPY trend agreement', market_points, 10, 'Price / 200 and 50 / 200'),
             ('Peak anchored VWAP', avwap_points, 10, f"{avwap['state']}; {avwap['slope']}"),
@@ -141,12 +144,13 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
             ('Thin dollar turnover', -penalty_liquidity, 0, f'${dollar_volume:,.0f} average / day'),
             ('Earnings within 7 days', -penalty_earnings, 0, next_earnings['date'] if next_earnings else 'Unknown'),
         ]
+        components.extend(volatility_score(data, sign))
         points = round(max(0, min(100, sum(c[1] for c in components))), 1)
         breakdown = [dict(label=l, points=round(float(p), 1), maximum=m, detail=d) for l, p, m, d in components]
         assessments.append(dict(direction=side, score=points, breakdown=breakdown))
         scores.append(dict(direction=side, score=points if trigger else 0, trigger=trigger, breakdown=breakdown))
     chosen = max(scores, key=lambda s: (s['score'], s['trigger']['time'] if s['trigger'] else ''))
-    chart_assessment = dict(version='chart-v1', available=True, **max(assessments, key=lambda s: s['score']),
+    chart_assessment = dict(version='chart-v2-volatility', available=True, **max(assessments, key=lambda s: s['score']),
                             bullish_score=assessments[0]['score'], bearish_score=assessments[1]['score'])
     return {**base, **chosen, 'eligible': bool(chosen['trigger']) and not stale,
             'chart_assessment': chart_assessment,
@@ -169,6 +173,7 @@ def chart_payload(bars: list[dict], years: int, today: date, anchor='swing_high'
     visible = data[data.time >= start.isoformat()]
     vwap = anchored_vwap(data, anchor, anchor_date, earnings)
     return {
+        'studies': volatility_payload(visible),
         'bars': visible[['time', 'open', 'high', 'low', 'close', 'volume']].to_dict('records'),
         'averages': {str(w): [{'time': r.time, 'value': number(getattr(r, f'sma{w}'))}
                             for r in visible.itertuples() if pd.notna(getattr(r, f'sma{w}'))] for w in (20, 50, 200)},

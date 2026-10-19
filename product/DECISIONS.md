@@ -106,6 +106,26 @@ Validation: 205 Python tests, 7 Node tests and desktop/mobile browser checks pas
 Coverage includes unlisted ticker lookup, bullish/bearish assessments without a
 fresh trigger, unavailable-versus-zero scoring, and unchanged trade-plan gates.
 
+### D020 / 2026-10-19 / Implemented: Volatility Overlays and Score Evidence
+
+David requested BB(20,2), TTM Squeeze, Donchian(20) and ATR(14) on charts and in
+scoring. Add optional overlays and synchronized squeeze/momentum/ATR panels.
+Use the documented EMA20/ATR20 x1.5 Keltner variant, not a vendor-identical TTM
+claim. Plot prior-bar Donchian levels to avoid self-moving breakout thresholds.
+Reuse `ta` indicators and NumPy least squares; preserve warmup and causal inputs.
+
+Version `daily-v4-volatility` / `chart-v2-volatility` reallocates 15/100 points:
+neutral compression 5, directional Donchian confirmation 5, release/momentum
+confirmation 5. Trigger/trend/volume maxima become 25/15/15. Other components and
+penalties retain their rules. Both scanner and any-ticker assessments use these
+weights. Qualification and research-only trade plans retain their existing gates.
+No morning paper strategy or execution authority changes. Exact formulas and
+limitations are recorded in [methodology](../docs/DAILY_TECHNICALS.md).
+
+Validation: 221 Python tests, 7 Node tests and the desktop/mobile browser suite
+pass. Coverage includes indicator formulas, warmup, no future-bar leakage,
+bounded scores, synchronized chart ranges, toggles and current-day refresh.
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:

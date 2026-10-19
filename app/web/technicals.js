@@ -12,6 +12,10 @@ const chartCache = new Map();
 let planLines = [];
 let refreshing = false;
 let refreshGeneration = 0;
+const bands = {};
+const panels = {};
+let syncingRange = false;
+let syncingCrosshair = false;
 
 function renderTradePlan(plan) {
   planLines.forEach(line => candles?.removePriceLine(line));
@@ -173,7 +177,79 @@ function drawChartData(data) {
   avwapSeries.setData(data.avwap?.points || []);
   avwapSeries.setMarkers(data.avwap?.anchor?.available && data.avwap.points.some(p => p.time === data.avwap.anchor.date) ? [{time:data.avwap.anchor.date,position:'aboveBar',shape:'square',color:'#f5a07f',text:'Anchor',size:.5}] : []);
   volume.setData(data.bars.map(b => ({time:b.time,value:b.volume,color:b.close >= b.open ? '#54c8a045' : '#f47b7d45'})));
+  for (const name of ['bollinger','donchian','keltner']) {
+    for (const key of ['upper','middle','lower']) bands[name][key].setData(data.studies?.[name]?.[key] || []);
+  }
+  const momentum = data.studies?.momentum || [];
+  panels.squeeze.series.setData(momentum.map((p,i) => ({...p,color:p.value >= 0 ? (p.value >= (momentum[i-1]?.value ?? p.value) ? '#62c8ee' : '#42829b') : (p.value <= (momentum[i-1]?.value ?? p.value) ? '#f47b7d' : '#b96f80')})));
+  const dots = data.studies?.squeeze || [];
+  panels.squeeze.dots.setData(dots.map(p => ({time:p.time,value:0})));
+  panels.squeeze.dots.setMarkers(dots.map(p => ({time:p.time,position:'inBar',shape:'circle',size:.35,color:p.on ? '#f47b7d' : p.released ? '#edb85e' : '#54c8a0'})));
+  panels.atr.series.setData(data.studies?.atr || []);
   updateMarkers();
+}
+
+function syncStudyDates() {
+  if (!chart || !state.chartData) return;
+  const first = state.chartData.bars[0]?.time;
+  const dates = [...new Set([...state.chartData.bars.map(b => b.time), ...($('show-earnings').checked ? state.earnings.filter(e => e.date >= first).map(e => e.date) : [])])].sort();
+  for (const panel of Object.values(panels)) panel.timeline.setData(dates.map(time => ({time,value:0})));
+}
+
+function createStudyPanels() {
+  for (const name of ['squeeze','atr']) {
+    const studyChart = LightweightCharts.createChart($(`${name}-chart`), {
+      layout:{background:{color:'#141617'},textColor:'#a0aaae',fontFamily:'Segoe UI, sans-serif',fontSize:10},
+      grid:{vertLines:{color:'#202527'},horzLines:{color:'#252a2c'}},
+      rightPriceScale:{minimumWidth:80,borderColor:'#34393c',scaleMargins:{top:.18,bottom:.18}},
+      timeScale:{visible:name === 'atr',borderColor:'#34393c',minBarSpacing:.05,lockVisibleTimeRangeOnResize:true},
+      crosshair:{mode:0},
+    });
+    const options = {priceLineVisible:false,lastValueVisible:false,priceFormat:{type:'price',precision:4,minMove:.0001}};
+    const series = name === 'atr' ? studyChart.addLineSeries({...options,color:'#edb85e',lineWidth:2}) : studyChart.addHistogramSeries(options);
+    const invisible = {...options,lineVisible:false,crosshairMarkerVisible:false,autoscaleInfoProvider:() => null};
+    const timeline = studyChart.addLineSeries(invisible);
+    const dots = name === 'squeeze' ? studyChart.addLineSeries({...invisible,autoscaleInfoProvider:undefined}) : null;
+    panels[name] = {chart:studyChart,series,timeline,dots};
+    new ResizeObserver(entries => {
+      const {width,height} = entries[0].contentRect;
+      if (width && height) {
+        studyChart.resize(width,height);
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (range) studyChart.timeScale().setVisibleLogicalRange(range);
+      }
+    }).observe($(`${name}-chart`));
+  }
+  const charts = [chart, ...Object.values(panels).map(p => p.chart)];
+  for (const source of charts) source.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (!range || syncingRange) return;
+    syncingRange = true;
+    for (const target of charts) if (target !== source) {
+      const current = target.timeScale().getVisibleLogicalRange();
+      if (!current || Math.abs(current.from-range.from) > .001 || Math.abs(current.to-range.to) > .001) target.timeScale().setVisibleLogicalRange(range);
+    }
+    syncingRange = false;
+  });
+  for (const source of charts) source.subscribeCrosshairMove(param => {
+    if (syncingCrosshair || !state.chartData) return;
+    syncingCrosshair = true;
+    try {
+      const time = typeof param.time === 'string' ? param.time : param.time ? `${param.time.year}-${String(param.time.month).padStart(2,'0')}-${String(param.time.day).padStart(2,'0')}` : null;
+      const momentum = state.chartData.studies?.momentum?.find(p => p.time === time);
+      const atr = state.chartData.studies?.atr?.find(p => p.time === time);
+      const squeeze = state.chartData.studies?.squeeze?.find(p => p.time === time);
+      $('squeeze-hover').textContent = time && squeeze ? `${time} · ${price(momentum?.value)} · ${squeeze.on ? 'On' : squeeze.released ? 'Released' : 'Off'}` : '';
+      $('atr-hover').textContent = atr ? `${time} · ${price(atr.value)}` : '';
+      for (const [target,series,rows,key] of [[chart,candles,state.chartData.bars,'close'],
+        [panels.squeeze.chart,panels.squeeze.series,state.chartData.studies?.momentum || [],'value'],
+        [panels.atr.chart,panels.atr.series,state.chartData.studies?.atr || [],'value']]) {
+        if (target === source) continue;
+        const point = rows.find(p => p.time === time);
+        if (point) target.setCrosshairPosition(point[key],time,series);
+        else target.clearCrosshairPosition();
+      }
+    } finally { syncingCrosshair = false; }
+  });
 }
 
 async function refreshCurrentChart() {
@@ -212,7 +288,7 @@ function initChart() {
   chart = LightweightCharts.createChart($('daily-chart'), {
     layout:{background:{color:'#141617'}, textColor:'#a0aaae', fontFamily:'Segoe UI, sans-serif'},
     grid:{vertLines:{color:'#202527'}, horzLines:{color:'#252a2c'}},
-    rightPriceScale:{borderColor:'#34393c', scaleMargins:{top:.1,bottom:.22}},
+    rightPriceScale:{minimumWidth:80,borderColor:'#34393c', scaleMargins:{top:.1,bottom:.22}},
     timeScale:{borderColor:'#34393c', timeVisible:false, rightOffset:8, minBarSpacing:.05, lockVisibleTimeRangeOnResize:true},
     crosshair:{mode:0}, handleScroll:true, handleScale:true,
   });
@@ -226,6 +302,11 @@ function initChart() {
   for (const [window, color] of Object.entries({20:'#62c8ee',50:'#edb85e',200:'#c29bef'})) {
     averages[window] = chart.addLineSeries({color,lineWidth:2, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false});
   }
+  for (const [name,color] of Object.entries({bollinger:'#5fa9d4',donchian:'#e0c66c',keltner:'#95aaa0'})) {
+    bands[name] = {};
+    for (const key of ['upper','middle','lower']) bands[name][key] = chart.addLineSeries({color,lineWidth:1,lineStyle:name === 'donchian' ? 1 : 2,visible:$(`show-${name}`).checked,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
+  }
+  createStudyPanels();
   new ResizeObserver(entries => {
     const {width,height} = entries[0].contentRect;
     if (width && height) chart.resize(width,height);
@@ -269,6 +350,7 @@ function updateMarkers() {
   });
   earningsSeries.setData(points);
   earningsSeries.setMarkers(markers);
+  syncStudyDates();
 }
 
 function fitChart() {
@@ -310,6 +392,10 @@ function renderSummary(data) {
   const context = [scored ? `<span class="${assessment.direction}">Chart ${assessment.score.toFixed(1)} / 100 · ${escapeHtml(assessment.direction)}</span><span>Bullish ${assessment.bullish_score.toFixed(1)} · Bearish ${assessment.bearish_score.toFixed(1)}</span><span>${escapeHtml(setup)}</span>` : `<span class="caution">${escapeHtml(assessment?.reason || 'Chart score unavailable.')}</span>`];
   if (vwap?.value) context.push(`<span class="${vwap.distance_pct >= 0 ? 'positive' : 'negative'}">${escapeHtml(vwap.state)} ${signed(vwap.distance_pct)} · ${escapeHtml(vwap.slope)}</span>`);
   if (summary.discovery) context.push(`<span>${escapeHtml(summary.discovery.state)}${summary.discovery.high_52w ? ` · Prior 52W $${price(summary.discovery.high_52w)}` : ''}</span>`);
+  const volatility = summary.volatility;
+  $('squeeze-value').textContent = volatility?.available ? `${volatility.squeeze.toUpperCase()} · Momentum ${price(volatility.momentum)}` : 'Unavailable';
+  $('atr-value').textContent = Number.isFinite(volatility?.atr) ? `$${price(volatility.atr)} · ${signed(volatility.atr_change5_pct)} vs 5 sessions ago` : 'Unavailable';
+  if (volatility?.available) context.push(`<span>BB width ${price(volatility.bb_width_pct)}%${volatility.bb_narrow ? ' · narrow' : ''}${volatility.bb_contracting ? ' · contracting' : ''}</span><span>Squeeze ${escapeHtml(volatility.squeeze)} · ATR ${price(volatility.atr)}</span>`);
   if (summary.next_earnings) context.push(`<span class="caution">Earnings ${escapeHtml(summary.next_earnings.date)}</span>`);
   else context.push('<span class="caution">Upcoming earnings unconfirmed</span>');
   if (vwap?.calendar_status && vwap.calendar_status !== 'available') context.push('<span class="caution">Earnings-anchor calendar incomplete</span>');
@@ -334,6 +420,8 @@ async function selectSymbol(symbol) {
   state.chartData = null;
   renderTradePlan(null);
   state.earnings = [];
+  for (const panel of Object.values(panels)) { panel.series.setData([]); panel.timeline.setData([]); if (panel.dots) {panel.dots.setData([]);panel.dots.setMarkers([]);} }
+  for (const id of ['squeeze-value','atr-value','squeeze-hover','atr-hover']) $(id).textContent = '';
   $('symbol-input').value = symbol;
   $('chart-symbol').textContent = symbol;
   for (const id of ['last-price','day-change','as-of','crosshair-info','score-breakdown','signal-events','earnings-list','risk-flags','quick-context','avwap-value','anchor-info']) $(id).textContent = '';
@@ -413,6 +501,10 @@ async function init() {
   $('save-pick').addEventListener('click',savePick);
   $('saved-only').addEventListener('click',() => {state.savedOnly=!state.savedOnly;$('saved-only').setAttribute('aria-pressed',state.savedOnly);renderRankings();});
   $('show-avwap').addEventListener('change',() => avwapSeries?.applyOptions({visible:$('show-avwap').checked}));
+  for (const name of ['bollinger','donchian','keltner']) $(`show-${name}`).addEventListener('change',() => {
+    for (const series of Object.values(bands[name] || {})) series.applyOptions({visible:$(`show-${name}`).checked});
+  });
+  for (const name of ['squeeze','atr']) $(`show-${name}`).addEventListener('change',() => { $(`${name}-panel`).hidden = !$(`show-${name}`).checked; });
   function changeAnchor() {
     state.anchor = $('anchor-mode').value;
     if (state.anchor === 'custom' && !$('anchor-date').value) $('anchor-date').value = state.chartData?.avwap?.anchor?.date || state.chartData?.bars[0]?.time || '';

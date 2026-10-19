@@ -27,15 +27,36 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
       return index >= w-1 ? [{time:bar.time,value:bars.slice(index-w+1,index+1).reduce((s,b)=>s+b.close,0)/w}] : [];
     });
   }
+  const studies = {bollinger:{},donchian:{},keltner:{},atr:[],momentum:[],squeeze:[]};
+  for (const key of ['upper','middle','lower']) {
+    studies.bollinger[key] = visible.flatMap(b => {
+      const index = bars.indexOf(b), values = bars.slice(index-19,index+1).map(p=>p.close);
+      if (index < 19) return [];
+      const mean = values.reduce((a,c)=>a+c,0)/20, std = Math.sqrt(values.reduce((s,c)=>s+(c-mean)**2,0)/20);
+      return [{time:b.time,value:mean + (key === 'upper' ? 2 : key === 'lower' ? -2 : 0)*std}];
+    });
+    studies.donchian[key] = visible.flatMap(b => {
+      const index = bars.indexOf(b), prior = bars.slice(Math.max(0,index-20),index);
+      if (index < 20) return [];
+      const high = Math.max(...prior.map(p=>p.high)), low = Math.min(...prior.map(p=>p.low));
+      return [{time:b.time,value:key === 'upper' ? high : key === 'lower' ? low : (high+low)/2}];
+    });
+  }
+  for (const key of ['upper','middle','lower']) studies.keltner[key] = studies.bollinger.middle.map(p=>({...p,value:p.value+(key === 'upper' ? 5 : key === 'lower' ? -5 : 0)}));
+  studies.atr = visible.map((b,i)=>({time:b.time,value:3+.8*Math.sin(i/20)}));
+  studies.momentum = visible.map((b,i)=>({time:b.time,value:2*Math.sin(i/15)}));
+  studies.squeeze = visible.map((b,i)=>({time:b.time,on:i%60<20,released:i%60===20}));
   const direction = symbol === 'MSFT' ? 'bearish' : 'bullish';
   const event = {time:visible.at(-5).time,kind:'ma20_50',label:'SMA 20 / 50',direction,held:true,age:4};
   const summary = {symbol,eligible:true,direction,score:symbol === 'MSFT' ? 64 : 78.5,as_of:visible.at(-1).time,
     close:visible.at(-1).close,change_pct:direction === 'bullish' ? 2.34 : -1.54,history_bars:bars.length,
     sma:Object.fromEntries(Object.entries(averages).map(([w,a])=>[w,a.at(-1).value])),trigger:event,signals:[event],
     warnings:['Synthetic browser test fixture; not market data.'],
-    breakdown:[['Recent held trigger',25,30,'SMA 20 / 50'],['Trend alignment + slope',25,25,'Price / 20 / 50 / 200'],
-      ['Trigger-day volume',18,20,'1.9x prior 20 sessions'],['63-session strength vs SPY',10.5,15,'7 percentage points'],
-      ['SPY trend agreement',10,10,'Price / 200 and 50 / 200'],['Earnings within 7 days',-10,0,'Scheduled date']]
+    breakdown:[['Recent held trigger',25,25,'SMA 20 / 50'],['Trend alignment + slope',15,15,'Price / 20 / 50 / 200'],
+      ['Trigger-day volume',12,15,'1.8x prior 20 sessions'],['63-session strength vs SPY',6.5,10,'6.5 percentage points'],
+      ['SPY trend agreement',10,10,'Price / 200 and 50 / 200'],['Peak anchored VWAP',10,10,'Above rising anchor'],
+      ['Volatility compression',5,5,'Narrow bands, falling ATR and squeeze on'],['Donchian breakout confirmation',5,5,'Beyond prior range after compression'],
+      ['Squeeze release confirmation',0,5,'No release'],['Earnings within 7 days',-10,0,'Scheduled date']]
       .map(([label,points,maximum,detail])=>({label,points,maximum,detail}))};
   const start = anchorMode === 'custom' && anchorDate ? anchorDate : visible.at(-150).time;
   let pv=0,v=0;
@@ -50,6 +71,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     reasons:[],warnings:['Research plan; no order submitted.'],entry_rule:'Next-session breakout trigger',stop_rule:'Five-session structure plus ATR buffer',target_rule:'2R planning objective'};
   const current_day = {status:'provisional',date:summary.as_of,fetched_at:'2026-10-19T15:00:00Z',trade_at:'2026-10-19T14:59:59Z'};
   summary.provisional = true;
+  summary.volatility = {available:true,squeeze:'on',momentum:studies.momentum.at(-1).value,atr:studies.atr.at(-1).value,atr_change5_pct:-4.5,bb_width_pct:5,bb_narrow:true,bb_contracting:true};
   summary.current_day = current_day;
   trade_plan.provisional = true;
   summary.chart_assessment = {version:'chart-v1',available:true,score:summary.score,direction,
@@ -71,7 +93,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     trade_plan.reasons = ['No qualifying recent held signal with score at least 50.'];
   }
   if (symbol === 'IPO') summary.chart_assessment = {available:false,score:null,reason:'Chart score needs 220 usable daily bars; 100 available.'};
-  return {symbol,years,bars:visible,averages,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
+  return {symbol,years,bars:visible,averages,studies,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
 (async () => {
@@ -120,6 +142,39 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#plan-status').innerText(),/provisional/);
   assert.match(await page.locator('#as-of').innerText(),/Today \/ provisional.*Checked/);
   assert.match(await page.locator('#scan-status').innerText(),/3\/3 with today's provisional candle/);
+  assert(await page.evaluate(()=>bands.bollinger.upper.data().length > 200 && bands.donchian.upper.data().length > 200));
+  assert(await page.evaluate(()=>panels.squeeze.series.data().length > 200 && panels.atr.series.data().length > 200));
+  assert(await page.evaluate(()=>panels.squeeze.dots.markers().some(p=>p.color === '#edb85e') && panels.squeeze.dots.markers().some(p=>p.color === '#f47b7d')));
+  assert.match(await page.locator('#atr-value').innerText(),/vs 5 sessions ago/);
+  assert.match(await page.locator('#score-breakdown').innerText(),/Volatility compression/);
+  for (const name of ['squeeze','atr']) {
+    const colored = await page.locator(`#${name}-chart canvas`).first().evaluate(canvas=>{
+      const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+      let n=0;for(let i=0;i<data.length;i+=4)if(Math.max(data[i],data[i+1],data[i+2])-Math.min(data[i],data[i+1],data[i+2])>60)n++;
+      return n;
+    });
+    assert(colored>100,`${name} panel should render colored indicator pixels, got ${colored}`);
+  }
+  for (const name of ['bollinger','donchian','keltner']) {
+    await page.locator(`#show-${name}`).uncheck();
+    assert.equal(await page.evaluate(n=>bands[n].upper.options().visible,name),false);
+    await page.locator(`#show-${name}`).check();
+    assert.equal(await page.evaluate(n=>bands[n].upper.options().visible,name),true);
+  }
+  await page.locator('#show-keltner').uncheck();
+  for (const name of ['squeeze','atr']) {
+    await page.locator(`#show-${name}`).uncheck();
+    assert.equal(await page.locator(`#${name}-panel`).isVisible(),false);
+    await page.locator(`#show-${name}`).check();
+    assert.equal(await page.locator(`#${name}-panel`).isVisible(),true);
+  }
+  await page.evaluate(()=>panels.squeeze.chart.timeScale().setVisibleLogicalRange({from:180,to:240}));
+  await page.waitForFunction(()=>chart.timeScale().getVisibleLogicalRange().from === 180 && panels.atr.chart.timeScale().getVisibleLogicalRange().from === 180);
+  await page.evaluate(()=>fitChart());
+  const priceCanvas = await page.locator('#daily-chart canvas').first().boundingBox();
+  await page.mouse.move(priceCanvas.x + priceCanvas.width*.5, priceCanvas.y + priceCanvas.height*.3);
+  await page.waitForFunction(()=>document.querySelector('#atr-hover').textContent.length > 0 && document.querySelector('#squeeze-hover').textContent.length > 0);
+  await page.mouse.move(0,0);
   await page.locator('#symbol-input').fill('QQQ');
   await page.locator('#symbol-input').press('Enter');
   await page.waitForFunction(()=>state.chartData?.symbol === 'QQQ');
@@ -178,6 +233,8 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.equal(await page.evaluate(()=>state.symbol),'NVDA');
   assert.equal(await page.evaluate(()=>state.reviewActive && state.review.decisions.AAPL === 'saved'),true);
   assert.deepEqual(await page.evaluate(()=>chart.timeScale().getVisibleLogicalRange()),range);
+  assert.deepEqual(await page.evaluate(()=>panels.atr.chart.timeScale().getVisibleLogicalRange()),range);
+  assert.deepEqual(await page.evaluate(()=>panels.squeeze.chart.timeScale().getVisibleLogicalRange()),range);
   chartFailure = true;
   await page.evaluate(()=>refreshDaily());
   assert.match(await page.locator('#as-of').innerText(),/Refresh failed/);
@@ -243,6 +300,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     await page.setViewportSize({width,height:844});
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth),true,`Horizontal overflow at ${width}`);
+    assert(await page.evaluate(()=>Math.abs(chart.timeScale().timeToCoordinate(state.chartData.bars.at(-10).time)-panels.atr.chart.timeScale().timeToCoordinate(state.chartData.bars.at(-10).time)) <= 1),'Indicator dates must align with candles');
     const visibleStart = await page.evaluate(()=>chart.timeScale().getVisibleRange().from);
     assert((typeof visibleStart === 'string' ? Number(visibleStart.slice(0,4)) : visibleStart.year) <= 2020,`Five-year view was clipped after resize at ${width}: ${JSON.stringify(visibleStart)}`);
     await page.screenshot({path:path.join(output,`daily-mobile-${width}.png`),fullPage:true});
@@ -261,6 +319,6 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.equal(await page.locator('[data-years="5"]').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>Boolean(state.savedPicks.AAPL)),true);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','arbitrary ticker chart assessment without setup qualification','insufficient history is unavailable not zero','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
+  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','BB/Donchian/Keltner overlays and toggles','squeeze dots and momentum pixels','ATR pixels and hover readouts','synchronized ranges and mobile date coordinates','arbitrary ticker chart assessment without setup qualification','insufficient history is unavailable not zero','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
   await browser.close();
 })().catch(error=>{console.error(error);process.exit(1);});

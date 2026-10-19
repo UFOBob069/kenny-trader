@@ -27,7 +27,7 @@ was disabled before implementing the paper boundary.
 | [Backlog](BACKLOG.md) | Stable IDs, priorities, acceptance criteria, ownership |
 | [Metrics and discovery](METRICS.md) | Baselines, experiments, event definitions, evaluation protocol |
 | [Decision log](DECISIONS.md) | Decisions, rationale, status, triggers for reconsideration |
-| [Scoring methodology](../docs/DAILY_TECHNICALS.md) | daily-v3-intraday inputs, unchanged heuristic weights and limitations |
+| [Scoring methodology](../docs/DAILY_TECHNICALS.md) | daily-v4-volatility indicators, weights and limitations |
 
 ## Ownership and operating rules
 

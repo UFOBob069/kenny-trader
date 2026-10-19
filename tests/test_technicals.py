@@ -47,8 +47,8 @@ def test_volume_uses_prior_sessions_and_score_components_sum():
     assert result['direction'] == 'bullish'
     assert result['volume_ratio'] == 2
     components = {r['label']: r for r in result['breakdown']}
-    assert components['Trigger-day volume']['points'] == 20
-    assert components['Recent held trigger']['points'] == 30  # no stacking correlated crosses
+    assert components['Trigger-day volume']['points'] == 15
+    assert components['Recent held trigger']['points'] == 25  # no stacking correlated crosses
     assert result['score'] == max(0, sum(r['points'] for r in result['breakdown']))
     assert 0 <= result['score'] <= 100
 
@@ -92,7 +92,7 @@ def test_unavailable_assessment_is_not_a_zero_score():
         assert not result['chart_assessment']['available']
         assert str(count) in result['chart_assessment']['reason']
     flat = analyze('FLAT', bars([100.] * 240), [], date(2026, 10, 17))
-    assert flat['chart_assessment']['available'] and flat['chart_assessment']['score'] == 0
+    assert flat['chart_assessment']['available'] and flat['chart_assessment']['score'] == 2  # neutral squeeze watch credit
 
 
 def test_trigger_qualified_assessment_preserves_setup_score():

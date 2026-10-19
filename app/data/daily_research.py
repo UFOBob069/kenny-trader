@@ -249,7 +249,7 @@ class DailyResearch:
             items.append(self.current_context(item, current[symbol]))
         items.sort(key=lambda i: (i['eligible'], i['score']), reverse=True)
         return dict(items=items, symbols=symbols, generated_at=datetime.now(timezone.utc).isoformat(),
-                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v3-intraday',
+                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v4-volatility',
                     current_day_count=sum(i['provisional'] for i in items), refresh_seconds=60,
                     review_date=max((i['as_of'] for i in items if i['as_of']), default=today.isoformat()))
 

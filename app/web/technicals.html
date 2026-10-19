@@ -51,12 +51,19 @@
         <label><input type="checkbox" data-average="50" checked><span class="swatch ma50"></span>SMA 50 <b id="ma50-value"></b></label>
         <label><input type="checkbox" data-average="200" checked><span class="swatch ma200"></span>SMA 200 <b id="ma200-value"></b></label>
         <label><input id="show-avwap" type="checkbox" checked><span class="swatch avwap-color"></span>AVWAP <b id="avwap-value"></b></label>
+        <label><input id="show-bollinger" type="checkbox" checked><span class="swatch bb-color"></span>BB (20, 2)</label>
+        <label title="Prior 20 bars; current bar excluded"><input id="show-donchian" type="checkbox" checked><span class="swatch dc-color"></span>Donchian 20</label>
+        <label title="EMA20 close +/- 1.5 x Wilder ATR20"><input id="show-keltner" type="checkbox"><span class="swatch kc-color"></span>Keltner</label>
+        <label><input id="show-squeeze" type="checkbox" checked>TTM Squeeze</label>
+        <label><input id="show-atr" type="checkbox" checked>ATR 14</label>
         <label><input id="show-events" type="checkbox" checked>Crosses</label>
         <label><input id="show-earnings" type="checkbox" checked>Earnings</label>
       </div>
       <div class="anchor-toolbar"><label for="anchor-mode">VWAP anchor</label><select id="anchor-mode"><option value="swing_high">6-month swing high</option><option value="swing_low">6-month swing low</option><option value="earnings">Earnings reaction</option><option value="ytd">Year to date</option><option value="custom">Custom date</option></select><input id="anchor-date" type="date" hidden aria-label="VWAP anchor date"><span id="anchor-info"></span></div>
       <div id="quick-context" class="quick-context"></div>
       <div class="chart-stage"><div id="daily-chart"></div><div id="chart-state" role="status">Select a ranked chart or enter a ticker.</div><div id="crosshair-info"></div></div>
+      <section id="squeeze-panel" class="study-panel" aria-label="TTM Squeeze"><div class="study-heading"><h3 title="TTM-style: BB(20,2) inside modern KC(EMA20, ATR20 x 1.5); 20-period regression momentum">TTM Squeeze</h3><span id="squeeze-value">--</span><span>KC: EMA20 / ATR20 x 1.5</span><span><i class="dot on"></i>On <i class="dot off"></i>Off <i class="dot release"></i>Release</span><span id="squeeze-hover"></span></div><div id="squeeze-chart" class="study-chart"></div></section>
+      <section id="atr-panel" class="study-panel" aria-label="ATR 14"><div class="study-heading"><h3>ATR (14)</h3><span id="atr-value">--</span><span id="atr-hover"></span></div><div id="atr-chart" class="study-chart atr-chart"></div></section>
       <div class="data-line"><span id="feed-label">Daily history</span><span id="earnings-state">Earnings dates not loaded</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener">Charts by TradingView</a></div>
       <section class="trade-plan" aria-label="Research trade plan"><div class="section-head"><h3>Research trade plan</h3><span id="plan-status">No chart selected</span></div><div id="trade-plan"></div></section>
       <div class="review-bottom">

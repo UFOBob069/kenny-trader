@@ -1,7 +1,9 @@
 # Daily Technicals: Research and Scoring
 
 Research date: October 17, 2026. Updated October 19, 2026.
-Model version: `daily-v3-intraday` (same weights, current-day inputs enabled).
+Model version: `daily-v4-volatility`; chart assessment: `chart-v2-volatility`.
+The added volatility evidence reallocates 15 points within the existing 100-point
+scale. Scores from earlier model versions are not directly comparable.
 
 ## What the evidence supports
 
@@ -50,12 +52,15 @@ or a claim that the listed securities currently have sufficient liquidity.
 
 | Component | Maximum | Exact rule |
 | --- | ---: | --- |
-| Recent held trigger | 30 | Best single trigger: price/200 = 30; 252-day range = 28; 50/200 or 55-day range = 25; AVWAP reclaim/loss = 24; 20/200 = 22; 20/50 or 20-day range = 18. Multiply by `1 - age/10`. Do not add correlated crosses. |
-| Trend alignment and slopes | 20 | 4 each for directional price/20, 20/50, 50/200 alignment, and directional 50- and 200-SMA changes over 20 sessions. |
-| Trigger-day volume | 20 | `clamp((volume / prior-20-session-average - 1) * 20, 0, 20)`. Full points at 2x. |
+| Recent held trigger | 25 | Best single trigger base weight: price/200 = 30; 252-day range = 28; 50/200 or 55-day range = 25; AVWAP reclaim/loss = 24; 20/200 = 22; 20/50 or 20-day range = 18. Multiply by `(1 - age/10) * 25/30`. Do not add correlated crosses. |
+| Trend alignment and slopes | 15 | 3 each for directional price/20, 20/50, 50/200 alignment, and directional 50- and 200-SMA changes over 20 sessions. |
+| Trigger-day volume | 15 | `clamp((volume / prior-20-session-average - 1) * 15, 0, 15)`. Full points at 2x. |
 | Relative strength vs SPY | 10 | Difference between stock and SPY 63-session price returns, in percentage points in the signal direction; clamped to 0-10. Dates must match. |
 | SPY regime agreement | 10 | 5 each for SPY price/200 and 50/200 alignment in the signal direction. |
 | Peak anchored VWAP | 10 | 5 if price is on the signal's side of the confirmed swing-high AVWAP, plus 5 if its five-session slope agrees. Unavailable anchors earn zero. |
+| Volatility compression | 5 | 3 when BB width is at/below the preceding 126-bar 20th percentile AND ATR14 is below its value five sessions ago; 2 when squeeze is on. Same points on both sides: neutral watch evidence, never an entry trigger. |
+| Donchian breakout confirmation | 5 | Current close beyond the prior 20-bar high/low in this direction, with compression on at least one of the preceding five bars. Compression means squeeze on OR narrow BB width plus declining ATR. |
+| Squeeze release confirmation | 5 | Release in the current/prior four bars, squeeze currently off, momentum on this side of zero and strengthening versus the previous bar, and close on this side of SMA20. |
 | Overextension penalty | -15 | 5 points per ATR beyond 2 ATR from SMA20 in the signal direction, capped at 15. ATR14 uses the `ta` library's Wilder implementation. |
 | Whipsaw penalty | -10 | Three or more price/200 crosses in the last 20 sessions. |
 | Thin turnover penalty | -20 | Last-20-session mean of close times volume below $1 million. No minimum stock price. |
@@ -68,21 +73,57 @@ These are transparent initial heuristics, not fitted or backtested parameters.
 
 ### Any-Ticker Chart Assessment
 
-`chart-v1` evaluates every supported ticker opened in the chart, independent of
+`chart-v2-volatility` evaluates every supported ticker opened in the chart, independent of
 scan-universe membership. The displayed **Chart score** is the stronger of the
 bullish and bearish evidence totals using the same weights and penalties above,
 but without the final no-trigger-to-zero override. Both directional totals are
 shown; the breakdown belongs to the displayed direction (bullish on an exact tie).
 Without a fresh trigger, trigger and trigger-day volume earn zero, so the maximum
-chart score is 50 before penalties. Missing components are not rescaled or imputed.
+chart score cannot exceed 60 before penalties. Missing components are not rescaled or imputed.
 
-The scanner's **setup score**, qualification rules and research trade-plan gates
-remain unchanged. A chart assessment is not permission to trade, a probability,
+The scanner's **setup score** uses the revised weights too; qualification rules
+and research trade-plan gates remain unchanged. A chart assessment is not permission to trade, a probability,
 or evidence of profitability. A strong ongoing trend may have a nonzero chart
 score but no qualifying recent breakout and therefore no trade plan. At least
 220 usable daily bars are required; otherwise the chart score is unavailable
 with the available bar count, not zero. Intraday scores remain provisional and
 stale/as-of/feed warnings apply to this assessment too.
+
+## Volatility Studies
+
+- **Bollinger Bands (20, 2):** SMA20 of closes plus/minus twice population standard
+  deviation (`ddof=0`). Width is `(upper-lower)/middle * 100`. The narrow flag uses
+  only the preceding 126 valid widths, not future observations or a universal
+  fixed threshold. [Fidelity's Bollinger description](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/bollinger-bands)
+  supports the band/volatility interpretation, not our score cutoffs.
+- **TTM-style Squeeze:** BB fully inside Keltner means on; the first valid off bar
+  after on means released. Red dots show on, green off, amber the release bar.
+  We explicitly use the modern **EMA20 of close +/- 1.5 x Wilder ATR20** Keltner
+  variant supplied by `ta`. It can differ from StockCharts' original-Keltner TTM
+  implementation; this is not a promise of vendor-identical signals. Momentum is
+  the last fitted value of a rolling 20-bar least-squares regression on
+  `close - (current 20-bar Donchian midpoint + SMA20)/2`, following the public
+  [StockCharts momentum construction](https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/ttm-squeeze).
+  Positive/negative and strengthening/weakening momentum use four histogram colors.
+- **Donchian (20):** highest high, lowest low and midpoint of the **preceding** 20
+  bars. The display is shifted one bar so today's candle cannot move its own
+  breakout threshold. This is an explicit offset from the usual rolling channel
+  described by [TradingView](https://www.tradingview.com/support/solutions/43000502253-donchian-channels-dc/).
+- **ATR (14):** Wilder-smoothed true range, including gaps relative to the previous
+  close; also display percentage change versus five sessions ago. It measures
+  movement, not direction. [Fidelity's ATR guide](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/atr).
+
+Indicators use the full history before slicing the selected 1-5-year view. Warmup
+bars are unavailable, not invented zeroes: BB/Keltner/squeeze need 20 bars,
+prior Donchian 21, ATR 14, regression momentum 39. The 126-bar width reference
+needs 146 total bars. Current-day values and scores remain provisional. Visual
+toggles do not change scores. Pan/zoom and crosshairs are synchronized between
+price, squeeze and ATR, including future earnings whitespace.
+
+Compression evidence overlaps other technical indicators; do not interpret the
+15-point allocation as independent statistical evidence. It is a bounded initial
+heuristic, not fitted or validated performance. Neither compression nor release
+alone bypasses the existing fresh held-signal, score, freshness or trade-plan gates.
 
 ## Anchored VWAP Recommendation
 
