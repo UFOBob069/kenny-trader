@@ -92,6 +92,20 @@ passed, including snapshot cache/date rollover, current SMA/AVWAP/plan inputs,
 missing/malformed bars, denied feed, preserved review/zoom, refresh failure and
 recovery, desktop and 320/390px mobile screenshots.
 
+### D019 / 2026-10-19 / Implemented: Score Any Supported Chart
+
+David wants a score for any ticker he opens. Retain unrestricted single-ticker
+lookup independent of the scan universe, and expose `chart-v1` assessments on
+chart summaries. Show both bullish/bearish evidence totals and the stronger
+side's breakdown using existing weights, without the setup-only no-trigger zero
+override. Do not loosen ranked-signal eligibility or research trade-plan gates.
+Insufficient history returns an unavailable assessment with a bar count, not a
+fabricated zero. No auto-add to the scan universe and no execution changes.
+
+Validation: 205 Python tests, 7 Node tests and desktop/mobile browser checks passed.
+Coverage includes unlisted ticker lookup, bullish/bearish assessments without a
+fresh trigger, unavailable-versus-zero scoring, and unchanged trade-plan gates.
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:

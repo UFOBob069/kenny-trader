@@ -27,3 +27,14 @@ def test_chart_provider_failure_is_actionable(monkeypatch):
     response = client.get('/api/technicals/chart/AAPL')
     assert response.status_code == 503
     assert response.json()['detail'] == 'Feed access denied.'
+
+
+def test_arbitrary_ticker_does_not_require_scan_membership(monkeypatch):
+    from app.data.daily_research import DEFAULT_SYMBOLS
+    assert 'QQQ' not in DEFAULT_SYMBOLS
+    chart = AsyncMock(return_value={'symbol': 'QQQ', 'summary': {'chart_assessment': {'available': True, 'score': 35}}})
+    monkeypatch.setattr(research, 'chart', chart)
+    response = TestClient(app).get('/api/technicals/chart/qqq?years=5')
+    assert response.status_code == 200
+    assert response.json()['summary']['chart_assessment']['score'] == 35
+    assert chart.call_args.args[:2] == ('QQQ', 5)

@@ -70,6 +70,39 @@ def test_no_trigger_insufficient_history_and_stale_are_not_ranked():
     assert not analyze('STALE', rows, [], date(2026, 10, 17))['eligible']
 
 
+@pytest.mark.parametrize('sign,side', [(1, 'bullish'), (-1, 'bearish')])
+def test_any_chart_gets_an_assessment_without_a_fresh_trigger(sign, side):
+    rows = bars([100 + sign * i * .05 for i in range(300)])
+    result = analyze('ZZZZ', rows, bars([100.] * 300), date(2026, 10, 17), [])
+    assessment = result['chart_assessment']
+    assert not result['eligible'] and result['score'] == 0 and result['trigger'] is None
+    assert assessment['available'] and assessment['direction'] == side
+    assert 0 < assessment['score'] <= 100
+    assert assessment[f'{side}_score'] == assessment['score']
+    assert assessment['score'] == pytest.approx(max(0, min(100, sum(r['points'] for r in assessment['breakdown']))), abs=.2)
+    assert next(r['points'] for r in assessment['breakdown'] if r['label'] == 'Recent held trigger') == 0
+    from app.engine.trade_plan import daily_trade_plan
+    assert daily_trade_plan(result, rows, date(2026, 10, 17))['status'] == 'unavailable'
+
+
+def test_unavailable_assessment_is_not_a_zero_score():
+    for count in (0, 199, 219):
+        result = analyze('IPO', bars([100.] * count), [], date(2026, 10, 17))
+        assert result['chart_assessment']['score'] is None
+        assert not result['chart_assessment']['available']
+        assert str(count) in result['chart_assessment']['reason']
+    flat = analyze('FLAT', bars([100.] * 240), [], date(2026, 10, 17))
+    assert flat['chart_assessment']['available'] and flat['chart_assessment']['score'] == 0
+
+
+def test_trigger_qualified_assessment_preserves_setup_score():
+    rows = bars([100.] * 230 + [103.])
+    result = analyze('TEST', rows, bars([100.] * 231), date(2026, 10, 17), [])
+    assert result['eligible']
+    assert result['chart_assessment']['score'] == result['score']
+    assert result['chart_assessment']['breakdown'] == result['breakdown']
+
+
 def test_cross_age_expires_and_benchmark_never_uses_future_rows():
     rows = bars([100.] * 230 + [103.] * 11)
     assert not analyze('OLD', rows, [], date(2026, 10, 17))['eligible']

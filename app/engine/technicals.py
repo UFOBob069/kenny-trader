@@ -59,7 +59,9 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
             earnings: list[dict] | None = None) -> dict:
     data = frame(bars)
     base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None,
-                eligible=False, score=0, direction='neutral', signals=[], breakdown=[], warnings=[])
+                eligible=False, score=0, direction='neutral', signals=[], breakdown=[], warnings=[],
+                chart_assessment=dict(version='chart-v1', available=False, score=None,
+                    reason=f'Chart score needs 220 usable daily bars; {len(data)} available.'))
     if len(data) < 220:
         return {**base, 'warnings': ['At least 220 usable daily bars are required.'],
                 'history_bars': len(data), 'close': number(data.close.iloc[-1]) if len(data) else None}
@@ -101,6 +103,7 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
         warnings.append('No confirmed swing-high AVWAP anchor; its score component earns no points.')
     crosses = [e for e in all_events if e['kind'] == 'price200' and len(data) - 1 - e['index'] < 20]
     scores = []
+    assessments = []
     for sign, side in ((1, 'bullish'), (-1, 'bearish')):
         candidates = [e for e in active if e['direction'] == side]
         trigger = max(candidates, key=lambda e: e['weight'] * (1 - e['age'] / 10), default=None)
@@ -138,11 +141,15 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
             ('Thin dollar turnover', -penalty_liquidity, 0, f'${dollar_volume:,.0f} average / day'),
             ('Earnings within 7 days', -penalty_earnings, 0, next_earnings['date'] if next_earnings else 'Unknown'),
         ]
-        points = round(max(0, min(100, sum(c[1] for c in components))), 1) if trigger else 0
-        scores.append(dict(direction=side, score=points, trigger=trigger,
-                           breakdown=[dict(label=l, points=round(float(p), 1), maximum=m, detail=d) for l, p, m, d in components]))
+        points = round(max(0, min(100, sum(c[1] for c in components))), 1)
+        breakdown = [dict(label=l, points=round(float(p), 1), maximum=m, detail=d) for l, p, m, d in components]
+        assessments.append(dict(direction=side, score=points, breakdown=breakdown))
+        scores.append(dict(direction=side, score=points if trigger else 0, trigger=trigger, breakdown=breakdown))
     chosen = max(scores, key=lambda s: (s['score'], s['trigger']['time'] if s['trigger'] else ''))
+    chart_assessment = dict(version='chart-v1', available=True, **max(assessments, key=lambda s: s['score']),
+                            bullish_score=assessments[0]['score'], bearish_score=assessments[1]['score'])
     return {**base, **chosen, 'eligible': bool(chosen['trigger']) and not stale,
+            'chart_assessment': chart_assessment,
             'as_of': last.time, 'close': number(last.close),
             'change_pct': number((last.close / data.close.iloc[-2] - 1) * 100),
             'sma': {str(w): number(last[f'sma{w}']) for w in (20, 50, 200)},

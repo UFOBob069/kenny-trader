@@ -66,6 +66,24 @@ Unavailable benchmark components earn no points and are disclosed, not imputed.
 Unknown earnings produce a warning, not a fictitious "no earnings" clearance.
 These are transparent initial heuristics, not fitted or backtested parameters.
 
+### Any-Ticker Chart Assessment
+
+`chart-v1` evaluates every supported ticker opened in the chart, independent of
+scan-universe membership. The displayed **Chart score** is the stronger of the
+bullish and bearish evidence totals using the same weights and penalties above,
+but without the final no-trigger-to-zero override. Both directional totals are
+shown; the breakdown belongs to the displayed direction (bullish on an exact tie).
+Without a fresh trigger, trigger and trigger-day volume earn zero, so the maximum
+chart score is 50 before penalties. Missing components are not rescaled or imputed.
+
+The scanner's **setup score**, qualification rules and research trade-plan gates
+remain unchanged. A chart assessment is not permission to trade, a probability,
+or evidence of profitability. A strong ongoing trend may have a nonzero chart
+score but no qualifying recent breakout and therefore no trade plan. At least
+220 usable daily bars are required; otherwise the chart score is unavailable
+with the available bar count, not zero. Intraday scores remain provisional and
+stale/as-of/feed warnings apply to this assessment too.
+
 ## Anchored VWAP Recommendation
 
 For evaluating a recovery after a prior peak, default to a significant swing-high

@@ -52,7 +52,26 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   summary.provisional = true;
   summary.current_day = current_day;
   trade_plan.provisional = true;
-  return {symbol,years,bars:visible,averages,events:[event],summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
+  summary.chart_assessment = {version:'chart-v1',available:true,score:summary.score,direction,
+    bullish_score:direction === 'bullish' ? summary.score : 12,bearish_score:direction === 'bearish' ? summary.score : 12,breakdown:summary.breakdown};
+  if (symbol === 'QQQ') {
+    summary.eligible = false;
+    summary.score = 0;
+    summary.trigger = null;
+    summary.signals = [];
+    summary.chart_assessment.score = summary.chart_assessment.bullish_score = 35;
+    summary.chart_assessment.breakdown = [{label:'Trend alignment + slope',points:20,maximum:20,detail:'Synthetic trend'},
+      {label:'Peak anchored VWAP',points:10,maximum:10,detail:'Above anchor'},
+      {label:'63-session strength vs SPY',points:5,maximum:10,detail:'Synthetic comparison'}];
+    trade_plan.status = 'unavailable';
+    delete trade_plan.entry;
+    delete trade_plan.entry_rule;
+    delete trade_plan.stop_rule;
+    delete trade_plan.target_rule;
+    trade_plan.reasons = ['No qualifying recent held signal with score at least 50.'];
+  }
+  if (symbol === 'IPO') summary.chart_assessment = {available:false,score:null,reason:'Chart score needs 220 usable daily bars; 100 available.'};
+  return {symbol,years,bars:visible,averages,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
 (async () => {
@@ -101,6 +120,25 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#plan-status').innerText(),/provisional/);
   assert.match(await page.locator('#as-of').innerText(),/Today \/ provisional.*Checked/);
   assert.match(await page.locator('#scan-status').innerText(),/3\/3 with today's provisional candle/);
+  await page.locator('#symbol-input').fill('QQQ');
+  await page.locator('#symbol-input').press('Enter');
+  await page.waitForFunction(()=>state.chartData?.symbol === 'QQQ');
+  assert.equal(await page.locator('#total-score').innerText(),'35.0 / 100');
+  assert.match(await page.locator('#quick-context').innerText(),/Chart 35.0.*bullish/);
+  assert.match(await page.locator('#score-context').innerText(),/Bullish 35.0 \/ Bearish 12.0/);
+  assert.match(await page.locator('#score-context').innerText(),/No recent qualifying breakout/);
+  assert.match(await page.locator('#plan-status').innerText(),/unavailable/);
+  assert.equal(await page.locator('.rank-row').count(),3);
+  assert.deepEqual(await page.evaluate(()=>state.universe),['AAPL','MSFT','NVDA']);
+  await page.screenshot({path:path.join(output,'daily-any-chart.png'),fullPage:true});
+  await page.locator('#symbol-input').fill('IPO');
+  await page.locator('#symbol-input').press('Enter');
+  await page.waitForFunction(()=>state.chartData?.symbol === 'IPO');
+  assert.equal(await page.locator('#total-score').innerText(),'Unavailable');
+  assert.match(await page.locator('#score-context').innerText(),/220 usable daily bars; 100 available/);
+  assert.equal(await page.locator('#score-breakdown').innerText(),'');
+  await page.getByRole('button',{name:'Review AAPL',exact:true}).click();
+  await page.waitForFunction(()=>state.chartData?.symbol === 'AAPL' && document.querySelector('#earnings-state').textContent.includes('3 dates'));
   assert.equal(await page.locator('.rank-row').count(),3);
   assert.equal(await page.locator('#chart-state').isVisible(),false);
   assert(await page.evaluate(() => chart.timeScale().timeToCoordinate('2025-02-20') > chart.timeScale().timeToCoordinate('2025-01-17')),'Future earnings must be after the last real candle');
@@ -223,6 +261,6 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.equal(await page.locator('[data-years="5"]').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>Boolean(state.savedPicks.AAPL)),true);
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
+  console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','arbitrary ticker chart assessment without setup qualification','insufficient history is unavailable not zero','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
   await browser.close();
 })().catch(error=>{console.error(error);process.exit(1);});
