@@ -60,6 +60,22 @@ async def test_history_paginates_split_adjusted_and_caches(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_completed_scan_never_reads_provisional_snapshots(monkeypatch):
+    client = DailyResearch()
+    history = normalize_bars([raw()], date(2026, 10, 19))
+    monkeypatch.setattr(client, 'histories', AsyncMock(return_value={'AAPL': history, 'SPY': history}))
+    current = AsyncMock(side_effect=AssertionError('Must not use snapshots'))
+    monkeypatch.setattr(client, 'current_histories', current)
+    monkeypatch.setattr(client, 'earnings', AsyncMock(return_value={'events': [], 'status': 'available'}))
+    result = await client.scan(['AAPL'], completed=True)
+    assert not result['items'][0]['provisional']
+    assert result['items'][0]['benchmark_aligned']
+    assert result['items'][0]['as_of'] == history[-1]['time']
+    current.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_missing_credentials_explicit_and_provider_errors_redacted(monkeypatch):
     client = DailyResearch()
     monkeypatch.setattr(settings, 'alpaca_api_key', '')

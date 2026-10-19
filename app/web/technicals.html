@@ -18,6 +18,7 @@
     <aside class="scanner">
       <div class="section-head"><h1>Daily Technicals</h1><button id="rescan" class="icon-button" title="Refresh scan" aria-label="Refresh scan"><i data-lucide="refresh-cw"></i></button></div>
       <div class="universe-line"><span id="universe-count">Scan universe</span><button id="edit-universe" class="icon-button" title="Edit scan universe" aria-label="Edit scan universe"><i data-lucide="list-filter"></i></button></div>
+      <div class="alert-launch"><button id="open-alerts"><i data-lucide="bell"></i>Technical alerts <span id="alert-count">0</span></button><span id="alert-monitor-status" role="status">Loading...</span></div>
       <div class="daily-review-controls"><button id="start-review"><i data-lucide="play"></i>Daily review</button><label class="sr-only" for="review-limit">Review size</label><select id="review-limit"><option value="10">Top 10</option><option value="20">Top 20</option></select><button id="saved-only" class="icon-button" title="Saved picks" aria-label="Saved picks" aria-pressed="false"><i data-lucide="bookmark"></i></button></div>
       <div class="segmented" id="directions" role="group" aria-label="Signal direction">
         <button data-direction="all" aria-pressed="true">All</button><button data-direction="bullish" aria-pressed="false">Bullish</button><button data-direction="bearish" aria-pressed="false">Bearish</button>
@@ -78,6 +79,28 @@
       <div id="universe-error" role="alert"></div><div class="dialog-actions"><button type="button" id="default-universe">Starter universe</button><button type="submit">Apply &amp; scan</button></div>
     </form>
   </dialog>
-  <script src="/static/technicals.js?v=1"></script>
+  <dialog id="alerts-dialog" aria-labelledby="alerts-title">
+    <div class="section-head"><h2 id="alerts-title">Technical alerts</h2><button id="close-alerts" class="icon-button" title="Close alerts" aria-label="Close alerts"><i data-lucide="x"></i></button></div>
+    <form id="alerts-form">
+      <fieldset id="alerts-fields" disabled>
+        <label for="alert-symbols">Alert tickers (up to 100)</label><textarea id="alert-symbols" rows="3" spellcheck="false" placeholder="AAPL, MSFT, NVDA"></textarea>
+        <button type="button" id="alert-use-universe">Use scan list</button>
+        <div class="alert-settings">
+          <label>Minimum setup score<input id="alert-minimum" type="number" min="50" max="100" step="1" value="60" required></label>
+          <label>Direction<select id="alert-direction"><option value="both">Buy and sell</option><option value="bullish">Buy / bullish</option><option value="bearish">Sell / bearish</option></select></label>
+          <label>Signal timing<select id="alert-mode"><option value="intraday">Intraday / provisional</option><option value="completed">Completed sessions / next day</option></select></label>
+        </div>
+        <div class="dialog-actions"><label class="alert-enable"><input type="checkbox" id="alert-enabled">Monitoring enabled</label><button type="submit" id="save-alerts"><i data-lucide="save"></i>Save watchlist</button></div>
+      </fieldset>
+    </form>
+    <div id="alert-error" class="status error" role="alert"></div>
+    <div id="alert-detail-status" class="status" role="status"></div>
+    <div class="alert-disclosure">Research only. SELL is a bearish setup, not an instruction to sell a holding. Scores are not win probabilities. IEX volume is not consolidated liquidity.</div>
+    <details><summary>Watchlist status</summary><div id="alert-coverage"></div></details>
+    <div class="section-head"><h3>Alert inbox</h3><div class="alert-inbox-tools"><button id="check-alerts" class="icon-button" title="Check alerts now" aria-label="Check alerts now"><i data-lucide="refresh-cw"></i></button><button id="read-alerts" class="icon-button" title="Mark displayed alerts read" aria-label="Mark displayed alerts read"><i data-lucide="check-check"></i></button></div></div>
+    <div id="alert-feed" aria-label="Technical alert inbox"></div>
+  </dialog>
+  <script src="/static/technical-alerts.js?v=1"></script>
+  <script src="/static/technicals.js?v=2"></script>
 </body>
 </html>

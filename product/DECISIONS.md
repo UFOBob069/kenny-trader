@@ -126,13 +126,39 @@ Validation: 221 Python tests, 7 Node tests and the desktop/mobile browser suite
 pass. Coverage includes indicator formulas, warmup, no future-bar leakage,
 bounded scores, synchronized chart ranges, toggles and current-day refresh.
 
+### D021 / 2026-10-19: Saved Technical Alert Watchlist
+
+David requested ticker-list buy/sell alerts based on the daily technicals. Add a
+separate server-persisted watchlist (up to 100 tickers), default score threshold
+60, selectable direction and intraday or completed-session timing. Default
+delivery is an in-app inbox; monitoring is opt-in and no tickers are pre-enabled.
+This does not place orders or change morning paper automation.
+
+Use existing held-trigger setup scores, not ungated chart scores. Compression
+alone cannot fire an alert. Intraday alerts require today's bar and a verified
+trade within 15 minutes during the regular session. Completed mode uses only
+prior-day history, deliberately waiting until the next calendar day. Do not
+claim an intraday snapshot is an official closing candle.
+
+Persist trigger/phase deduplication, read state, score evidence and data-quality
+status in Supabase settings or volume-backed SQLite. A paused or failed monitor
+must be visible. Keep the last 500 alert snapshots and 90 days of dedupe keys.
+The existing deployment is a single-user, single-worker shared instance, not a
+multi-tenant account system. External delivery and access-control expansion are
+separate work; do not silently enable email, SMS or browser permissions.
+
+Validation: 244 Python tests and 7 Node tests pass, plus desktop and 390/320px
+browser checks covering save/reload, inbox direction, chart opening, read state,
+pause and unavailable storage. Pause during an in-flight check discards its
+result without blocking configuration. Live outcome quality remains unvalidated.
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:
   decide from week-one evidence; default allocation favors morning research.
 - Paid data or alternate provider: decide only after entitlement diagnosis, coverage
   comparison, licensing review and a concrete cost proposal.
-- Alert delivery outside the app: no channel or schedule was requested; first
-  establish that alerts are timely and worth receiving.
+- Alert delivery outside the app: D021 adds server-monitored in-app alerts;
+  email/SMS delivery still requires a selected channel and delivery service.
 - Live execution: no discovery or implementation commitment this month. Paper
   experiments are now explicitly permitted under D015.

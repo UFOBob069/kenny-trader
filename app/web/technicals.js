@@ -482,6 +482,7 @@ function moveSelection(delta) {
 async function init() {
   window.lucide?.createIcons();
   initChart();
+  initTechnicalAlerts({request, escapeHtml, selectSymbol, universe:() => state.universe});
   const storedPicks = saved('kenny.daily.picks',{});
   state.savedPicks = storedPicks && typeof storedPicks === 'object' && !Array.isArray(storedPicks) ? storedPicks : {};
   const savedYears = Number(saved('kenny.daily.years',1));
@@ -521,7 +522,7 @@ async function init() {
   $('anchor-mode').addEventListener('change',changeAnchor);
   $('anchor-date').addEventListener('change',changeAnchor);
   document.addEventListener('keydown',event => {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest('input,textarea,select,[contenteditable=true]') || $('universe-dialog').open) return;
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest('input,textarea,select,[contenteditable=true]') || $('universe-dialog').open || $('alerts-dialog').open) return;
     if (event.key === 'ArrowRight') {event.preventDefault();moveSelection(1);}
     if (event.key === 'ArrowLeft') {event.preventDefault();moveSelection(-1);}
     if (state.reviewActive && ['d','s','x'].includes(event.key.toLowerCase())) {

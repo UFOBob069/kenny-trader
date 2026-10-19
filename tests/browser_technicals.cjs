@@ -108,10 +108,40 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#chart-state').innerText(),/not configured/);
   let delay = false;
   let chartFailure = false;
+  let alertFailure = false;
+  const alertData = {config:{symbols:'',enabled:false,minimum_score:60,direction:'both',mode:'intraday'},
+    alerts:[],revision:0,coverage:[],unread:0,last_checked:null,last_error:null,worker_running:true};
   await page.route('**/api/technicals/**',async route => {
     const url = new URL(route.request().url());
     const endpoint = url.pathname;
     let data;
+    if (endpoint.includes('/alerts')) {
+      if (alertFailure) return route.fulfill({status:503,json:{detail:'Alert journal unavailable.'}});
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON();
+        if (body.revision !== alertData.revision) return route.fulfill({status:409,json:{detail:'Watchlist changed in another window.'}});
+        const {revision,...config} = body;
+        config.symbols = [...new Set(config.symbols.toUpperCase().split(/[\s,;]+/))].join(' ');
+        alertData.config = config;
+        alertData.revision++;
+      }
+      if (endpoint.endsWith('/check') && alertData.config.enabled) {
+        alertData.last_checked = '2026-10-19T15:00:00Z';
+        if (!alertData.alerts.length) alertData.alerts = ['NVDA','MSFT'].map(symbol => {
+          const s = fixture(symbol,1).summary;
+          return {id:symbol,symbol,direction:s.direction,action:s.direction === 'bullish' ? 'BUY' : 'SELL',score:Math.max(70,s.score),
+            price:s.close,phase:'provisional',trigger:s.trigger,created_at:alertData.last_checked,as_of:s.as_of,
+            read:false,status:'Qualifying',warnings:['Synthetic fixture; not market data.'],breakdown:s.breakdown,score_version:'daily-v4-volatility'};
+        });
+        alertData.coverage = ['NVDA','MSFT'].map(symbol=>({symbol,status:'Qualifying',score:70}));
+      }
+      if (endpoint.endsWith('/read')) {
+        const ids = route.request().postDataJSON().ids;
+        alertData.alerts.forEach(alert=>{if(ids.includes(alert.id)) alert.read=true;});
+      }
+      alertData.unread = alertData.alerts.filter(a=>!a.read).length;
+      return route.fulfill({json:alertData});
+    }
     if (endpoint.endsWith('/config')) data = {default_symbols:['AAPL','MSFT','NVDA'],history_configured:true,earnings_configured:true,feed:'sip'};
     if (endpoint.endsWith('/scan')) {
       const symbols = route.request().postDataJSON().symbols.split(' ');
@@ -171,6 +201,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   await page.evaluate(()=>panels.squeeze.chart.timeScale().setVisibleLogicalRange({from:180,to:240}));
   await page.waitForFunction(()=>chart.timeScale().getVisibleLogicalRange().from === 180 && panels.atr.chart.timeScale().getVisibleLogicalRange().from === 180);
   await page.evaluate(()=>fitChart());
+  await page.locator('#daily-chart').scrollIntoViewIfNeeded();
   const priceCanvas = await page.locator('#daily-chart canvas').first().boundingBox();
   await page.mouse.move(priceCanvas.x + priceCanvas.width*.5, priceCanvas.y + priceCanvas.height*.3);
   await page.waitForFunction(()=>document.querySelector('#atr-hover').textContent.length > 0 && document.querySelector('#squeeze-hover').textContent.length > 0);
@@ -318,6 +349,48 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   await page.waitForFunction(()=>document.querySelector('#universe-count').textContent==='2 symbols');
   assert.equal(await page.locator('[data-years="5"]').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>Boolean(state.savedPicks.AAPL)),true);
+  await page.setViewportSize({width:1440,height:1050});
+  await page.locator('#open-alerts').click();
+  await page.waitForFunction(()=>!document.querySelector('#alerts-fields').disabled);
+  await page.locator('#alert-use-universe').click();
+  assert.equal(await page.locator('#alert-symbols').inputValue(),'NVDA, AMD');
+  await page.locator('#alert-symbols').fill('NVDA, msft');
+  await page.locator('#alert-minimum').fill('65');
+  await page.locator('#alert-enabled').check();
+  await page.locator('#save-alerts').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.technical-alert').length===2);
+  assert.equal(alertData.config.symbols,'NVDA MSFT');
+  assert.equal(alertData.config.minimum_score,65);
+  assert.equal(await page.locator('#alert-count').innerText(),'2');
+  assert.match(await page.locator('#alert-feed').innerText(),/BUY setup/);
+  assert.match(await page.locator('#alert-feed').innerText(),/SELL setup/);
+  assert.match(await page.locator('#alert-detail-status').innerText(),/Server checks every 60s/);
+  await page.screenshot({path:path.join(output,'alerts-desktop.png')});
+  for (const width of [390,320]) {
+    await page.setViewportSize({width,height:844});
+    assert(await page.locator('#alerts-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth),`Alert dialog overflow at ${width}`);
+    await page.screenshot({path:path.join(output,`alerts-mobile-${width}.png`)});
+  }
+  await page.getByRole('button',{name:'Open MSFT alert chart',exact:true}).click();
+  await page.waitForFunction(()=>state.chartData?.symbol==='MSFT');
+  await page.waitForFunction(()=>document.querySelector('#alert-count').textContent==='1');
+  assert.equal(await page.locator('#alerts-dialog').evaluate(e=>e.open),false);
+  await page.reload();
+  await page.locator('#open-alerts').click();
+  await page.waitForFunction(()=>!document.querySelector('#alerts-fields').disabled);
+  assert.equal(await page.locator('#alert-symbols').inputValue(),'NVDA MSFT');
+  assert.equal(await page.locator('#alert-minimum').inputValue(),'65');
+  await page.locator('#read-alerts').click();
+  await page.waitForFunction(()=>document.querySelector('#alert-count').textContent==='0');
+  await page.locator('#alert-enabled').uncheck();
+  await page.locator('#save-alerts').click();
+  await page.waitForFunction(()=>document.querySelector('#alert-monitor-status').textContent==='Monitoring paused');
+  await page.locator('#close-alerts').click();
+  alertFailure = true;
+  await page.locator('#open-alerts').click();
+  await page.waitForFunction(()=>document.querySelector('#alert-error').textContent.includes('journal unavailable'));
+  assert(await page.locator('#alert-symbols').isDisabled());
+  await page.locator('#close-alerts').click();
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','BB/Donchian/Keltner overlays and toggles','squeeze dots and momentum pixels','ATR pixels and hover readouts','synchronized ranges and mobile date coordinates','arbitrary ticker chart assessment without setup qualification','insufficient history is unavailable not zero','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
   await browser.close();

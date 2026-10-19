@@ -6,6 +6,24 @@ execution remains out of scope. Original acceptance criteria below remain record
 
 ## Delivery Status Override
 
+October 19 addition at David's explicit request: KT-017 implements saved daily
+technical alert lists and an in-app inbox. It does not resolve the existing
+authentication or live signal-quality validation gaps.
+
+### KT-017 / P1 / Personal Technical Alert Watchlist
+
+- Evidence: David asked to add a ticker list producing technical buy/sell alerts.
+- Outcome: save a separate watchlist once and review qualifying research setups
+  without repeatedly initiating a scan; open any alert directly in its chart.
+- Acceptance: up to 100 normalized tickers, threshold/direction/timing controls,
+  durable list and read state, server checks without an open browser, per-trigger
+  deduplication, stale-data rejection, immediate pause/configuration changes,
+  current-status and error disclosure, no order-placement dependencies.
+- State: implemented and automated-tested; live usefulness and false-positive
+  observations remain pending. In-app delivery only. See D021 and methodology.
+- Priority: explicit owner-requested daily increment, not a replacement for
+  KT-001 access control or KT-016 morning-quality evidence. Owner: Codex.
+
 Second tranche: KT-002/003 now have fill accounting, restored journal state and
 single-process submission/close idempotency. Daily plans added at David's request.
 Remaining limits: [tracking and plan contract](PAPER_TRACKING_AND_DAILY_PLANS.md).

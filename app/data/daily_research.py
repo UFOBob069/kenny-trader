@@ -236,9 +236,13 @@ class DailyResearch:
             self._save(key, value, 3600 if not failures else 60)
             return value
 
-    async def scan(self, symbols: list[str]) -> dict:
+    async def scan(self, symbols: list[str], completed=False) -> dict:
         today = datetime.now(ET).date()
-        histories, current = await self.current_histories(list(dict.fromkeys([*symbols, 'SPY'])), today)
+        universe = list(dict.fromkeys([*symbols, 'SPY']))
+        if completed:
+            histories = await self.histories(universe, today)
+        else:
+            histories, current = await self.current_histories(universe, today)
         calendar = await self.earnings(None, today, today + timedelta(days=30))
         benchmark = histories.get('SPY', [])
         items = []
@@ -246,7 +250,13 @@ class DailyResearch:
             dates = [e for e in calendar['events'] if e['symbol'] == symbol]
             item = await asyncio.to_thread(analyze, symbol, histories[symbol], benchmark, today,
                                            dates if calendar['status'] == 'available' else None)
-            items.append(self.current_context(item, current[symbol]))
+            if completed:
+                item['provisional'] = False
+                item['benchmark_aligned'] = bool(benchmark and item['as_of'] == benchmark[-1]['time'])
+                item['warnings'].append('Completed-session alert uses prior daily history, available from the next calendar day.')
+                items.append(item)
+            else:
+                items.append(self.current_context(item, current[symbol]))
         items.sort(key=lambda i: (i['eligible'], i['score']), reverse=True)
         return dict(items=items, symbols=symbols, generated_at=datetime.now(timezone.utc).isoformat(),
                     feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v4-volatility',

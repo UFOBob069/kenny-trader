@@ -8,6 +8,11 @@ Priority: better morning VWAP setups; retain and improve daily chart review.
 
 ## Progress
 
+October 19 owner-requested addition: KT-017 adds saved technical-alert watchlists,
+server monitoring and an in-app inbox (D021). No automatic daily trades or external
+notification channel is enabled. Next validation is observed alert relevance,
+timeliness and duplicate behavior; this does not claim a profitable signal edge.
+
 Second tranche: broker-fill reconciliation, durable journal recovery, setup-level
 paper results and research-only daily entry/stop/2R plans implemented. See
 [tracking and plan contract](PAPER_TRACKING_AND_DAILY_PLANS.md). Market-open
@@ -24,7 +29,8 @@ validation remains pending; deployed Supabase journal recovery is verified.
 
 The original weekly sequencing below remains a baseline, with paper-only testing
 now permitted. Statements excluding all automation are superseded only for this
-bounded paper experiment, not for live trading or new notification automation.
+bounded paper experiment and the separately requested D021 in-app monitoring,
+not for live trading or external notification delivery.
 
 ## Outcome
 

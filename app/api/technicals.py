@@ -7,9 +7,50 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.data.daily_research import DEFAULT_SYMBOLS, ET, DailyResearch, ResearchDataError, symbols_from_text
+from app.engine.technical_alerts import AlertConfig, TechnicalAlerts
+from app.db.technical_alerts import AlertStorageError
 
 router = APIRouter(prefix='/api/technicals')
 research = DailyResearch()
+alerts = TechnicalAlerts(research)
+
+
+class AlertSettingsRequest(AlertConfig):
+    revision: int = Field(ge=0)
+
+
+class ReadAlertsRequest(BaseModel):
+    ids: list[str] = Field(max_length=500)
+
+
+async def alert_result(operation):
+    try:
+        return await operation
+    except AlertStorageError as exc:
+        raise HTTPException(503, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@router.get('/alerts')
+async def get_alerts():
+    return await alert_result(alerts.snapshot())
+
+
+@router.put('/alerts')
+async def configure_alerts(body: AlertSettingsRequest):
+    config = AlertConfig.model_validate(body.model_dump(exclude={'revision'}))
+    return await alert_result(alerts.configure(config, body.revision))
+
+
+@router.post('/alerts/check')
+async def check_alerts():
+    return await alert_result(alerts.check())
+
+
+@router.post('/alerts/read')
+async def read_alerts(body: ReadAlertsRequest):
+    return await alert_result(alerts.mark_read(set(body.ids)))
 
 
 class ScanRequest(BaseModel):

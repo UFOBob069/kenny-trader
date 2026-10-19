@@ -5,6 +5,49 @@ Model version: `daily-v4-volatility`; chart assessment: `chart-v2-volatility`.
 The added volatility evidence reallocates 15 points within the existing 100-point
 scale. Scores from earlier model versions are not directly comparable.
 
+## Technical Alert Watchlist
+
+Open **Technical alerts** in the scanner sidebar. Paste up to 100 comma-, space-,
+semicolon- or newline-separated tickers, set the minimum setup score (50-100;
+default 60), direction and timing, then enable monitoring and save. **Use scan
+list** copies the current universe into the editable alert list. The two lists
+remain independent. The inbox opens each ticker directly in the chart and
+records read/unread state on the server.
+
+- BUY means a qualifying bullish research setup; SELL means a bearish setup,
+  not a position-aware exit instruction. No orders are submitted.
+- Alerts require the existing eligible, held-trigger setup score to meet the
+  threshold. A strong ungated chart score or compression alone is insufficient.
+- Intraday mode checks during regular hours, requires today's provisional bar,
+  a provider fetch within 120 seconds and latest trade within 15 minutes.
+  Missing, future-dated or stale timestamps cannot fire an alert.
+- Completed-session mode excludes today's snapshot altogether. It evaluates
+  prior-day historical bars available from the next calendar day, aligned with
+  SPY and no more than five calendar days old. It is not an immediate 4 p.m.
+  closing-auction alert service. Provider revisions remain possible.
+- The server checks approximately every 60 seconds while running, even with the
+  browser closed. Manual checks share a 45-second cooldown and the same lock.
+  Delivery is the in-app inbox only; no email, SMS or push subscription exists.
+- One alert is recorded per symbol/direction/trigger date/trigger type/phase/score
+  version. Repeated polling, threshold oscillations and restarts do not repeat
+  the same setup. A first check may surface an already-held recent setup; the
+  trigger date and observation time are separate. Completed and provisional
+  phases can each produce one snapshot.
+- Historical evidence and score stay fixed. Status is rechecked and may become
+  below threshold, superseded, paused, removed from monitoring or data unavailable.
+  Latest-check timestamps and monitor errors must be consulted before acting.
+- Retain 500 snapshots and 90 days of duplicate keys. Read/unread actions only
+  affect specified IDs, so concurrently arriving alerts are not marked read.
+
+Storage uses a separate `technicals.alerts.v1` record in the existing Supabase
+`settings` table, or a separate `technical_alerts` table at `STATE_DB_PATH` locally.
+Railway SQLite requires that path to be on its persistent volume; missing durable
+storage returns an error rather than silently losing the watchlist. No paper
+journal tables are modified. Configuration revisions prevent stale browser tabs
+from overwriting a newer watchlist. Run one application worker/replica: this is a
+personal shared-instance watchlist under the app's existing access controls, not
+per-user storage or a distributed monitoring service.
+
 ## What the evidence supports
 
 There is no defensible universal claim that a particular 20/50/200 crossover is
