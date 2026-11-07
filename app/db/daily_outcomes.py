@@ -8,9 +8,11 @@ from app.db.technical_alerts import AlertStore
 
 class OutcomeStore(AlertStore):
     def records(self, prefix, since):
-        lower, upper = prefix + since, prefix + ':'
+        # Compare ISO dates, not a punctuation sentinel whose sort order
+        # differs between PostgreSQL locale collations and SQLite binary text.
+        lower, upper = prefix + since, prefix + '9999-12-31'
         if self._backend() == 'supabase':
-            rows = self.client.table('settings').select('key,value').gte('key', lower).lt(
+            rows = self.client.table('settings').select('key,value').like('key', prefix + '%').gte('key', lower).lt(
                 'key', upper).order('key').limit(500).execute().data
             return {r['key'][len(prefix):]: r['value'] for r in rows}
         with sqlite3.connect(settings.state_db_path, timeout=10) as db:

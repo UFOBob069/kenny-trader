@@ -117,6 +117,8 @@ class DailyOutcomes:
                 seen = {r['episode'] for k, c in records.items() if '/' not in k for r in c['rows']}
                 cohort = snapshot(items, membership, day, stamp, seen)
                 await asyncio.to_thread(self.store.insert, self.prefix + day, cohort)
+                if day not in await self.records(stamp):
+                    raise RuntimeError('Captured session not readable')
         for key, cohort in records.items():
             if '/' in key:
                 continue
