@@ -9,6 +9,7 @@ from app.config import settings
 from app.data.daily_research import DEFAULT_SYMBOLS, ET, DailyResearch, ResearchDataError, symbols_from_text
 from app.engine.technical_alerts import AlertConfig, TechnicalAlerts
 from app.engine.technicals import SCORE_VERSION
+from app.engine.daily_outcomes import DailyOutcomes
 from app.data.index_universes import IndexUniverses
 from app.db.technical_alerts import AlertStorageError
 
@@ -16,6 +17,18 @@ router = APIRouter(prefix='/api/technicals')
 research = DailyResearch()
 index_universes = IndexUniverses(research.http)
 alerts = TechnicalAlerts(research)
+outcomes = DailyOutcomes(research, index_universes)
+
+
+@router.get('/outcomes')
+async def daily_outcomes(horizon: int = 5, direction: Literal['bullish', 'bearish', 'both'] = 'bullish',
+                         plan: Literal['all', 'conditional', 'wait', 'unavailable'] = 'all'):
+    if horizon not in (5, 20):
+        raise HTTPException(422, 'Choose 5 or 20 sessions.')
+    try:
+        return await outcomes.report(horizon, direction, plan)
+    except Exception:
+        raise HTTPException(503, 'Daily outcome storage unavailable; results cannot be verified.') from None
 
 
 class AlertSettingsRequest(AlertConfig):

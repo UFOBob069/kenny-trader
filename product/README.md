@@ -21,6 +21,7 @@ was disabled before implementing the paper boundary.
 
 | Document | Purpose |
 | --- | --- |
+| [November scoring and review audit](SCORING_REVIEW_2026-11-07.md) | Production top-ten check, scoring priorities and five-minute review workflow |
 | [Strategy](STRATEGY.md) | Audience, jobs, positioning, choices, non-goals, assumptions |
 | [Audit](AUDIT_2026-10-17.md) | Architecture, history, findings, live observations, test evidence |
 | [30-day roadmap](ROADMAP.md) | Sequenced outcomes, dependencies, capacity, release gates |

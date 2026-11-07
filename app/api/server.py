@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.data.market_hours import is_extended_hours, market_session
 from app.engine.orchestrator import Orchestrator
-from app.api.technicals import router as technicals_router, research, alerts
+from app.api.technicals import router as technicals_router, research, alerts, outcomes
 from app.engine.execution_policy import paper_execution_allowed
 
 log = logging.getLogger(__name__)
@@ -25,9 +25,11 @@ orch = Orchestrator()
 async def lifespan(app: FastAPI):
     await orch.start()
     alerts.start()
+    outcomes.start()
     try:
         yield
     finally:
+        await outcomes.stop()
         await alerts.stop()
         await orch.stop()
         await research.close()

@@ -97,6 +97,8 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     degree:'Standard',sessions:260,evidence:{bullish:2,bearish:0,detail:'Standard wave 3; territory holds.'},
     degrees:[{degree:'Standard',available:true,direction:'bullish',phase:'Impulse through 3',swing_count:27,reason:'Territory holds.'},{degree:'Short',available:false,swing_count:46,reason:'No impulse.'}],
     pivots:[-50,-40,-32,-15].map((index,i)=>({time:visible.at(index).time,confirmed_on:visible.at(index+3).time,price:visible.at(index).close,kind:i%2?'high':'low',label:String(i)}))};
+  if (symbol === 'MSFT') { trade_plan.status='wait'; trade_plan.reasons=['Stop distance exceeds 8%.']; }
+  summary.readiness = {status:trade_plan.status,reasons:trade_plan.reasons || []};
   return {symbol,years,bars:visible,averages,studies,elliott,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
@@ -119,6 +121,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     const url = new URL(route.request().url());
     const endpoint = url.pathname;
     let data;
+    if (endpoint.endsWith('/outcomes')) data = {groups:[{band:'70+',matured:0,missing:0,pending:2,mean_excess:null}],feed:'iex',version:'test',status:'Monitoring',sessions:1,latest:'2026-11-06'};
     if (endpoint.includes('/alerts')) {
       if (alertFailure) return route.fulfill({status:503,json:{detail:'Alert journal unavailable.'}});
       if (route.request().method() === 'PUT') {
@@ -230,6 +233,11 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#score-context').innerText(),/No recent qualifying breakout/);
   assert.match(await page.locator('#plan-status').innerText(),/unavailable/);
   assert.equal(await page.locator('.rank-row').count(),3);
+  assert.match(await page.locator('[data-symbol="MSFT"]').innerText(), /Stop distance exceeds 8%/);
+  await page.locator('#open-outcomes').click();
+  await page.waitForFunction(()=>document.querySelector('#outcome-status').textContent.includes('No mature outcomes'));
+  assert.match(await page.locator('#outcome-bands').innerText(), /70\+/);
+  await page.locator('#close-outcomes').click();
   assert.deepEqual(await page.evaluate(()=>state.universe),['AAPL','MSFT','NVDA']);
   await page.screenshot({path:path.join(output,'daily-any-chart.png'),fullPage:true});
   await page.locator('#symbol-input').fill('IPO');

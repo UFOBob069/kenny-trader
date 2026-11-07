@@ -263,11 +263,27 @@ class DailyResearch:
                 items.append(item)
             else:
                 items.append(self.current_context(item, current[symbol]))
-        items.sort(key=lambda i: (i['eligible'], i['score']), reverse=True)
+            self.plan(item, histories[symbol], today, None if completed else current[symbol])
+        order = {'conditional': 0, 'wait': 1, 'unavailable': 2}
+        items.sort(key=lambda i: (order[i['readiness']['status']], -i['score'], i['symbol']))
         return dict(items=items, symbols=symbols, generated_at=datetime.now(timezone.utc).isoformat(),
                     feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version=SCORE_VERSION,
                     current_day_count=sum(i['provisional'] for i in items), refresh_seconds=60,
                     review_date=max((i['as_of'] for i in items if i['as_of']), default=today.isoformat()))
+
+    @staticmethod
+    def plan(summary, bars, today, current):
+        plan = daily_trade_plan(summary, bars, today)
+        plan['provisional'] = summary['provisional']
+        if summary['provisional']:
+            plan['warnings'].append("Intraday plan: today's candle and these levels are provisional, not close-confirmed.")
+            plan['validity'] = 'Recalculate on each refresh; current-day levels can move before the close.'
+        elif current and (current['status'] == 'unavailable' or market_session() in ('pre', 'regular', 'post')):
+            plan = dict(version=plan['version'], status='unavailable', execution='research_only',
+                        direction=summary['direction'], as_of=summary['as_of'], provisional=False,
+                        reasons=[current['message']], warnings=[])
+        summary['readiness'] = {k: plan[k] for k in ('status', 'reasons')}
+        return plan
 
     async def chart(self, symbol: str, years: int, anchor='swing_high', anchor_date=None) -> dict:
         today = datetime.now(ET).date()
@@ -287,14 +303,7 @@ class DailyResearch:
         payload = await asyncio.to_thread(chart_payload, bars, years, today, anchor, anchor_date, past_earnings)
         if anchor == 'earnings':
             payload['avwap']['calendar_status'] = past['status']
-        plan = daily_trade_plan(summary, bars, today)
-        plan['provisional'] = summary['provisional']
-        if summary['provisional']:
-            plan['warnings'].append("Intraday plan: today's candle and these levels are provisional, not close-confirmed.")
-            plan['validity'] = 'Recalculate on each refresh; current-day levels can move before the close.'
-        elif current[symbol]['status'] == 'unavailable' or market_session() in ('pre', 'regular', 'post'):
-            plan = dict(version='daily-plan-v1', status='unavailable', execution='research_only',
-                        direction=summary['direction'], as_of=summary['as_of'], reasons=[current[symbol]['message']], warnings=[])
+        plan = self.plan(summary, bars, today, current[symbol])
         for event in payload['events']:
             event['provisional'] = event['time'] == today.isoformat()
         return dict(**payload, summary=summary, trade_plan=plan, symbol=symbol, years=years,

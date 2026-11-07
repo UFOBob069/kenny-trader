@@ -33,6 +33,12 @@ test('review queue is ranked, bounded and excludes stale or scoreless setups', (
   assert.equal(items[0].symbol,'OLD');
 });
 
+test('conditional plans precede higher scoring waits and unavailable plans', () => {
+  const items = [['NO',99,'unavailable'],['WAIT',95,'wait'],['COND',51,'conditional'],['BETTER',63,'conditional']]
+    .map(([symbol,score,status])=>({symbol,score,eligible:true,readiness:{status}}));
+  assert.deepEqual(reviewQueue(items,3),['BETTER','COND','WAIT']);
+});
+
 test('discovery and AVWAP filters require corresponding evidence', () => {
   const item = {eligible:true,score:60,direction:'bullish',discovery:{above_52w:true},
     signals:[{kind:'avwap',direction:'bullish',held:true}]};

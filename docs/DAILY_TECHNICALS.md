@@ -347,3 +347,27 @@ filters, fast selection races, 5-year visible history after mobile resizing,
 AVWAP anchors, review shortcuts/progress, saved picks, errors and persisted preferences;
 screenshots go to the system temp
 directory or `SCREENSHOT_DIR`. This is not a live-provider acceptance test.
+## Readiness queue and forward score study
+
+Rankings and guided review put conditional research plans first, then Wait plans
+with their blockers, then unavailable plans. Within each group, higher held-setup
+scores come first. An intraday candle remains provisional. These labels are not
+orders and do not change technical-alert or morning paper-trading rules.
+
+**Score outcomes** compares the first observed completed-session score for each
+Nasdaq-100 held trigger (symbol, side, kind, trigger date). The study runs on the
+server without a browser. It captures the latest completed bar after the date
+rolls over, before the next market open, including weekends. Missed cohorts are
+not backfilled. Custom and S&P lists use the same readiness queue but are not
+pooled into this fixed study. Score version and feed have separate journals.
+
+Each cohort and its 5- and 20-session measurements are written once, in the
+existing Supabase settings table or local SQLite (on Railway, a mounted volume
+is required for SQLite). Keep the API service running for collection. The report
+shows the most recent 120 calendar days; captured Wait and lower-score controls
+remain in the denominator. Missing endpoints are not counted as zero returns.
+Dates use observed SPY sessions; the stock and benchmark must both have the
+matching next-session open and horizon close. Use split-adjusted prices. Excess
+return is stock minus SPY for bullish signals and SPY minus stock for bearish.
+These are research labels, not fills, stop/target simulations, or net returns.
+Small samples and overlapping market exposures do not establish predictive skill.

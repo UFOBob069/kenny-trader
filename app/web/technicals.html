@@ -32,7 +32,7 @@
       <div id="scan-status" class="status" role="status">Loading universe...</div>
       <div class="table-head"><span>Symbol / trigger</span><span>Score</span><span>1D</span></div>
       <div id="rankings" class="rankings" aria-label="Ranked charts"></div>
-      <footer class="scan-footer"><span id="result-count">0 charts</span><span>Heuristic / 100</span></footer>
+      <footer class="scan-footer"><span id="result-count">0 charts</span><button id="open-outcomes"><i data-lucide="bar-chart-3"></i> Score outcomes</button></footer>
     </aside>
     <section class="review" aria-label="Chart review">
       <div id="review-session" class="review-session" hidden><span id="review-progress"></span><span id="review-date"></span><button id="review-done" class="icon-button" title="Reviewed and next (D)" aria-label="Reviewed and next"><i data-lucide="check"></i></button><button id="review-save" class="icon-button" title="Save pick and next (S)" aria-label="Save pick and next"><i data-lucide="bookmark-plus"></i></button><button id="review-pass" class="icon-button" title="Pass and next (X)" aria-label="Pass and next"><i data-lucide="skip-forward"></i></button><button id="end-review" class="icon-button" title="Exit review" aria-label="Exit review"><i data-lucide="x"></i></button></div>
@@ -77,6 +77,14 @@
       </div>
     </section>
   </main>
+  <dialog id="outcomes-dialog" aria-labelledby="outcomes-title">
+    <div class="section-head"><h2 id="outcomes-title">Daily score outcomes</h2><button id="close-outcomes" class="icon-button" aria-label="Close score outcomes" title="Close"><i data-lucide="x"></i></button></div>
+    <div class="outcome-controls"><label>Direction <select id="outcome-side"><option value="bullish">Bullish</option><option value="bearish">Bearish</option><option value="both">Both</option></select></label><label>Horizon <select id="outcome-horizon"><option value="5">5 sessions</option><option value="20">20 sessions</option></select></label></div>
+    <label>Plan at capture <select id="outcome-plan"><option value="all">All setups</option><option value="conditional">Conditional</option><option value="wait">Wait</option><option value="unavailable">Plan unavailable</option></select></label>
+    <p id="outcome-status" role="status"></p>
+    <table class="outcome-table"><thead><tr><th>Score</th><th>Measured</th><th>Pending</th><th>Missing</th><th>Avg vs SPY</th></tr></thead><tbody id="outcome-bands"></tbody></table>
+    <p>Nasdaq-100 held setups, first observed per trigger. Completed bars only, last 120 calendar days. Compares next open to horizon close against SPY; positive favors the signal direction. Percentage points, before costs; not trade P&amp;L.</p>
+  </dialog>
   <dialog id="universe-dialog">
     <form id="universe-form"><div class="section-head"><h2>Scan universe</h2><button type="button" id="close-universe" class="icon-button" aria-label="Close" title="Close"><i data-lucide="x"></i></button></div>
       <label for="universe-input">Ticker symbols (up to 100)</label><textarea id="universe-input" rows="7" spellcheck="false"></textarea>
@@ -105,6 +113,6 @@
     <div id="alert-feed" aria-label="Technical alert inbox"></div>
   </dialog>
   <script src="/static/technical-alerts.js?v=1"></script>
-  <script src="/static/technicals.js?v=2"></script>
+  <script src="/static/technicals.js?v=3"></script>
 </body>
 </html>

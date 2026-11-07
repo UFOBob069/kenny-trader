@@ -58,12 +58,16 @@ function filteredItems(items, direction, kind, minimum, recentOnly) {
 }
 
 function renderRankings() {
-  const source = state.savedOnly ? Object.entries(state.savedPicks).map(([symbol,item]) => state.items.find(i => i.symbol === symbol) || item) : state.items;
+  const source = state.savedOnly ? Object.entries(state.savedPicks).map(([symbol,item]) => state.items.find(i => i.symbol === symbol) ||
+    {...item,readiness:{status:'unavailable',reasons:['Saved snapshot; not verified in this scan.']}}) : state.items;
   state.visible = filteredItems(source, state.direction, $('signal-filter').value,
-    Number($('min-score').value) || 0, state.savedOnly ? false : $('recent-only').checked).sort((a,b) => b.score - a.score);
-  $('rankings').innerHTML = state.visible.map(item => `<button class="rank-row ${item.symbol === state.symbol ? 'selected' : ''}" data-symbol="${escapeHtml(item.symbol)}" aria-label="Review ${escapeHtml(item.symbol)}">
+    Number($('min-score').value) || 0, state.savedOnly ? false : $('recent-only').checked).sort(byReadiness);
+  const groups = ['Conditional plans','Wait','Plan unavailable'];
+  const counts = groups.map((_,i) => state.visible.filter(x => planTier(x) === i).length);
+  $('rankings').innerHTML = state.visible.map((item,i) => `${(!i || planTier(item) !== planTier(state.visible[i-1])) ? `<h3 class="queue-heading">${groups[planTier(item)]} (${counts[planTier(item)]})</h3>` : ''}<button class="rank-row ${item.symbol === state.symbol ? 'selected' : ''}" data-symbol="${escapeHtml(item.symbol)}" aria-label="Review ${escapeHtml(item.symbol)}">
     <span><b>${escapeHtml(item.symbol)}</b><small>${escapeHtml(item.trigger?.label || (item.history_bars < 220 ? 'Insufficient history' : 'No recent held signal'))}${item.trigger ? ` &middot; ${item.trigger.age}d` : ''}</small><small>${escapeHtml(item.as_of || 'No bars')}${item.provisional ? ' &middot; provisional' : ' &middot; prior sessions'}</small>${state.savedPicks[item.symbol] ? '<small class="saved-label">Saved</small>' : ''}</span>
-    <span class="score ${item.direction}">${item.score.toFixed(0)}</span><span class="${item.change_pct >= 0 ? 'positive' : 'negative'}">${signed(item.change_pct)}</span></button>`).join('') || '<div class="empty">No charts match these filters.</div>';
+    <span class="score ${item.direction}">${item.score.toFixed(0)}</span><span class="${item.change_pct >= 0 ? 'positive' : 'negative'}">${signed(item.change_pct)}</span>${item.readiness?.reasons?.length ? `<small class="blocker">${escapeHtml(item.readiness.reasons.join(' '))}</small>` : ''}</button>`).join('') || '<div class="empty">No charts match these filters.</div>';
+  if (state.visible.length && !counts[0]) $('rankings').insertAdjacentHTML('afterbegin','<h3 class="queue-heading">No conditional plans in these results</h3>');
   $('result-count').textContent = `${state.visible.length} / ${state.items.length} charts`;
   $('universe-count').textContent = `${state.universe.length} symbols`;
   const navigation = navigationSymbols();
@@ -80,8 +84,14 @@ function navigationSymbols() {
   return state.reviewActive ? state.review.symbols : state.visible.map(i => i.symbol);
 }
 
+function planTier(item) {
+  return ({conditional:0,wait:1})[item.readiness?.status] ?? 2;
+}
+function byReadiness(a,b) {
+  return planTier(a)-planTier(b) || b.score-a.score || a.symbol.localeCompare(b.symbol);
+}
 function reviewQueue(items, count) {
-  return items.filter(i => i.eligible && i.score > 0).slice().sort((a,b) => b.score - a.score).slice(0,count).map(i => i.symbol);
+  return items.filter(i => i.eligible && i.score > 0).sort(byReadiness).slice(0,count).map(i => i.symbol);
 }
 
 function renderReview() {
@@ -534,6 +544,24 @@ function moveSelection(delta) {
 }
 
 async function init() {
+  let reportGeneration = 0;
+  async function loadOutcomes() {
+    const gen = ++reportGeneration;
+    $('outcome-status').textContent = 'Loading outcomes...';
+    $('outcome-bands').replaceChildren();
+    try {
+      const r = await request(`/api/technicals/outcomes?horizon=${$('outcome-horizon').value}&direction=${$('outcome-side').value}&plan=${$('outcome-plan').value}`);
+      if (gen !== reportGeneration) return;
+      const n = r.groups.reduce((a,g)=>a+g.matured,0);
+      $('outcome-status').textContent = [r.status, r.latest ? `${r.sessions} captured sessions through ${r.latest}` : 'No completed-session cohort captured yet', r.feed.toUpperCase(), r.version, n ? `${n} measured setups` : 'No mature outcomes for this selection'].join(' · ');
+      $('outcome-bands').innerHTML = r.groups.map(g=>`<tr><th scope="row">${escapeHtml(g.band)}</th><td>${g.matured}</td><td>${g.pending}</td><td>${g.missing}</td><td>${g.mean_excess == null ? '--' : `${g.mean_excess > 0 ? '+' : ''}${g.mean_excess.toFixed(2)} pp`}</td></tr>`).join('');
+    } catch(error) {
+      if (gen === reportGeneration) $('outcome-status').textContent = error.message;
+    }
+  }
+  $('open-outcomes').onclick = () => { $('outcomes-dialog').showModal(); loadOutcomes(); };
+  $('close-outcomes').onclick = () => $('outcomes-dialog').close();
+  for (const id of ['outcome-horizon','outcome-side','outcome-plan']) $(id).onchange = loadOutcomes;
   window.lucide?.createIcons();
   initChart();
   initTechnicalAlerts({request, escapeHtml, selectSymbol, universe:() => state.universe});

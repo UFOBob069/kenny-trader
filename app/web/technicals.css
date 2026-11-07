@@ -130,6 +130,13 @@ dialog::backdrop { background:#0009; } dialog .section-head { padding-inline:0; 
 .quick-context span { border-left:2px solid #52605a; padding-left:7px; }
 .quick-context .caution { color:#edb85e; border-color:#edb85e; }
 .rank-row small.saved-label { color:var(--green); }
+.queue-heading { margin:0; padding:8px 16px; font-size:12px; border-bottom:1px solid var(--line); }
+.rank-row small.blocker { grid-column:1/-1; color:var(--text); text-align:left; }
+.outcome-controls { display:flex; gap:16px; flex-wrap:wrap; }
+.outcome-table { width:100%; border-collapse:collapse; font-size:12px; }
+.outcome-table td,.outcome-table th { padding:8px 2px; border-bottom:1px solid var(--line); text-align:right; }
+.outcome-table :first-child:is(td,th) { text-align:left; }
+#outcomes-dialog p { color:var(--muted); line-height:1.5; }
 body.reviewing .review-bottom { display:none; }
 body.reviewing .chart-stage { height:clamp(320px,44vh,600px); }
 @media(min-width:1600px) { main { grid-template-columns:360px minmax(0,1fr); } }
