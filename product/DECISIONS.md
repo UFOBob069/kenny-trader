@@ -152,6 +152,18 @@ browser checks covering save/reload, inbox direction, chart opening, read state,
 pause and unavailable storage. Pause during an in-flight check discards its
 result without blocking configuration. Live outcome quality remains unvalidated.
 
+### D022 / 2026-11-07: Index Scans and Elliott Wave Context
+
+David identified that refresh covered the 62-name starter universe. Offer dated
+Nasdaq-100 membership (new default) and S&P 500 exposure via IVV equity holdings,
+preserving custom lists and the 100-name alert limit. Report coverage separately
+from eligible/filtered results. Chunk index scans and bound history cache memory.
+
+Show a conservative Elliott count on the chart, including bullish/bearish impulse
+and simple correction candidates, confirmation dates and explicit no-count states.
+Do not change setup scores, alerts, trade plans or paper execution without evidence
+that the count adds predictive value. See [methodology](../docs/DAILY_TECHNICALS.md).
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:

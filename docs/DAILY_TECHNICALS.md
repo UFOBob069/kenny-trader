@@ -7,6 +7,35 @@ scale. Scores from earlier model versions are not directly comparable.
 
 ## Technical Alert Watchlist
 
+The scanner and alert watchlist have separate limits. The default scanner uses
+the [Nasdaq-100 member list](https://api.nasdaq.com/api/quote/list-type/nasdaq100).
+S&P 500 coverage uses [IVV issuer holdings](https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/latest-holdings.csv),
+an ETF equity proxy, not a licensed index file. Multiple share classes are kept;
+cash, derivatives and unweighted residuals are excluded. The original 62-name
+starter and saved custom lists remain available. Membership is checked hourly,
+must be dated within seven days, and fails visibly rather than substituting the
+starter list. Index scans run in batches of 25 on page load/manual refresh and
+approximately every five minutes while visible; selected charts refresh every
+minute between scans. Requested, scored (220+ usable bars), insufficient history,
+failed batches, eligible held setups and filtered rows are different counts.
+
+### Elliott Wave Overlay
+
+The overlay is a **candidate** single-degree interpretation of the latest 260
+completed daily bars. A unique swing extreme needs three bars on either side;
+opposite swings must differ by at least 3% and 1.5 ATR. The latest extreme can
+be replaced; pivot dates are not the dates at which the count became knowable.
+Hover over the count summary for confirmation dates. The count recognizes
+impulses through waves 3, 4 or 5 and a simple subsequent A/B/C candidate. It
+uses the [standard impulse rules](https://www.elliottwave.com/articles/elevate-your-elliott-wave-analysis/):
+wave 2 cannot break the origin, wave 3 cannot be shortest of 1/3/5, and wave 4
+must not overlap wave 1. This implementation also requires a non-truncated fifth;
+diagonals, nested degrees and complex corrections are not modeled. No recent
+match is reported explicitly. This is descriptive and unvalidated, not a price
+target or win probability. It does not change scores, alerts, or order behavior.
+
+### Alert Setup
+
 Open **Technical alerts** in the scanner sidebar. Paste up to 100 comma-, space-,
 semicolon- or newline-separated tickers, set the minimum setup score (50-100;
 default 60), direction and timing, then enable monitoring and save. **Use scan

@@ -28,6 +28,8 @@ function initTechnicalAlerts({request, escapeHtml:esc, selectSymbol, universe}) 
 
   function fillForm() {
     if (!data) return;
+    el('alert-use-universe').disabled = universe().length > 100 || !universe().length;
+    el('alert-use-universe').title = universe().length > 100 ? 'Alert watchlists support up to 100 symbols; enter a subset.' : 'Copy the scan symbols';
     const config = data.config;
     el('alert-symbols').value = config.symbols;
     el('alert-minimum').value = config.minimum_score;

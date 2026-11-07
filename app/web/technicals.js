@@ -16,6 +16,9 @@ const bands = {};
 const panels = {};
 let syncingRange = false;
 let syncingCrosshair = false;
+let waveSeries, scanController, lastWideScan = 0;
+let universeKey = 'starter';
+const isIndex = () => ['nasdaq100','sp500'].includes(universeKey);
 
 function renderTradePlan(plan) {
   planLines.forEach(line => candles?.removePriceLine(line));
@@ -69,7 +72,7 @@ function renderRankings() {
   $('next').disabled = index >= navigation.length - 1 || !navigation.length;
   $('save-pick').setAttribute('aria-pressed', Boolean(state.savedPicks[state.symbol]));
   $('save-pick').disabled = !state.chartData;
-  $('start-review').disabled = !state.visible.some(i => state.items.includes(i) && i.eligible && i.score > 0);
+  $('start-review').disabled = (isIndex() && $('rescan').disabled) || !state.visible.some(i => state.items.includes(i) && i.eligible && i.score > 0);
   renderReview();
 }
 
@@ -150,16 +153,50 @@ async function scan({background = false} = {}) {
   if (background && $('rescan').disabled) return;
   chartCache.clear();
   const generation = ++state.scanGeneration;
+  scanController?.abort();
+  scanController = new AbortController();
+  const signal = scanController.signal;
   $('rescan').disabled = true;
   $('scan-status').classList.remove('error');
   if (!background) $('scan-status').textContent = `Scanning ${state.universe.length} symbols...`;
   renderRankings();
   try {
-    const result = await request('/api/technicals/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbols:state.universe.join(' ')})});
-    if (generation !== state.scanGeneration) return;
-    state.items = result.items;
-    state.reviewDate = result.review_date || result.items.find(i => i.as_of)?.as_of || '';
-    $('scan-status').textContent = `${result.feed.toUpperCase()} feed · ${result.current_day_count || 0}/${result.items.length} with today's provisional candle · Checked ${new Date(result.generated_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+    let membership = null;
+    if (isIndex()) {
+      $('scan-status').textContent = 'Loading index membership...';
+      membership = await request(`/api/technicals/universes/${universeKey}`,{signal});
+      if (generation !== state.scanGeneration) return;
+      state.universe = membership.symbols;
+      renderRankings();
+    }
+    const symbols = state.universe.slice(), items = [], failed = [];
+    const batchSize = membership ? 25 : 100;
+    let current = 0, feed = '', checked = '';
+    for (let offset=0; offset<symbols.length; offset+=batchSize) {
+      const batch = symbols.slice(offset,offset+batchSize);
+      try {
+        const result = await request('/api/technicals/scan',{method:'POST',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({symbols:batch.join(' ')})});
+        if (generation !== state.scanGeneration) return;
+        items.push(...result.items); current += result.current_day_count || 0;
+        feed = result.feed.toUpperCase(); checked = result.generated_at;
+      } catch (error) {
+        if (generation !== state.scanGeneration) return;
+        if (!membership) throw error;
+        failed.push(...batch);
+        if (/rate limit|credentials|feed access/i.test(error.message)) {failed.push(...symbols.slice(offset+batchSize)); break;}
+      }
+      if (membership) {
+        state.items = items.slice(); renderRankings();
+        $('scan-status').textContent = `${membership.name} · ${Math.min(offset+batchSize,symbols.length)}/${symbols.length} checked · ${items.filter(i=>i.chart_assessment?.available).length} scored`;
+      }
+    }
+    state.items = items;
+    state.reviewDate = items.reduce((date,i)=>i.as_of > date ? i.as_of : date,'');
+    const scored = items.filter(i=>i.chart_assessment?.available).length;
+    $('scan-status').textContent = `${membership ? `${membership.name} · Members ${membership.as_of} · ` : ''}${symbols.length} requested · ${scored} scored · ${items.length-scored} insufficient history · ${failed.length} failed · ${items.filter(i=>i.eligible).length} held setups · ${feed || 'No'} feed · ${current}/${items.length} with today's provisional candle${checked ? ` · Checked ${new Date(checked).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}` : ''}`;
+    $('scan-status').title = failed.length ? `Not scored: ${failed.join(', ')}` : '';
+    $('scan-status').classList.toggle('error',failed.length > 0);
+    if (membership) lastWideScan = Date.now();
     renderRankings();
     if (!state.symbol && state.visible.length) selectSymbol(state.visible[0].symbol);
   } catch (error) {
@@ -167,7 +204,7 @@ async function scan({background = false} = {}) {
     $('scan-status').textContent = `Refresh failed; rankings may be stale. ${error.message}`;
     $('scan-status').classList.add('error');
   } finally {
-    if (generation === state.scanGeneration) $('rescan').disabled = false;
+    if (generation === state.scanGeneration) { $('rescan').disabled = false; renderRankings(); }
   }
   if (generation === state.scanGeneration) await refreshCurrentChart();
 }
@@ -277,7 +314,10 @@ async function refreshCurrentChart() {
 async function refreshDaily() {
   if (document.hidden || refreshing || $('rescan').disabled) return;
   refreshing = true;
-  try { await scan({background:true}); } finally { refreshing = false; }
+  try {
+    if (isIndex() && Date.now()-lastWideScan < 300000) await refreshCurrentChart();
+    else await scan({background:true});
+  } finally { refreshing = false; }
 }
 
 function initChart() {
@@ -294,6 +334,7 @@ function initChart() {
   });
   candles = chart.addCandlestickSeries({upColor:'#54c8a0', downColor:'#f47b7d', borderVisible:false, wickUpColor:'#54c8a0', wickDownColor:'#f47b7d'});
   avwapSeries = chart.addLineSeries({color:'#f5a07f',lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:true});
+  waveSeries = chart.addLineSeries({color:'#e9a5cb',lineWidth:2,lineStyle:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
   // A separate invisible series anchors future events on their actual dates, not the last candle.
   earningsSeries = chart.addLineSeries({color:'transparent', lineVisible:false, lastValueVisible:false,
     priceLineVisible:false, crosshairMarkerVisible:false, autoscaleInfoProvider:() => null});
@@ -341,6 +382,13 @@ function chartMarkers(data, earnings, showEvents, showEarnings) {
 function updateMarkers() {
   if (!candles || !state.chartData) return;
   const data = state.chartData;
+  const wave = data.elliott;
+  const show = $('show-wave').checked;
+  const pivots = show && wave?.available ? wave.pivots.filter(p=>p.time >= data.bars[0]?.time) : [];
+  waveSeries.setData(pivots.map(p=>({time:p.time,value:p.price})));
+  waveSeries.setMarkers(pivots.map(p=>({time:p.time,position:p.kind==='high'?'aboveBar':'belowBar',shape:'circle',size:.5,color:'#e9a5cb',text:`EW ${p.label}`})));
+  $('wave-context').textContent = !show || !wave ? '' : `Elliott candidate · ${wave.available ? `${wave.direction} ${wave.phase.toLowerCase()} · W2 retraced ${wave.retracement2_pct}% · W3 ${wave.extension3}× W1` : wave.reason} · Completed sessions through ${wave.as_of || 'unavailable'}`;
+  $('wave-context').title = pivots.map(p=>`${p.label}: ${p.time} at $${price(p.price)}, pivot confirmed ${p.confirmed_on}`).join('\n');
   candles.setData(data.bars);
   candles.setMarkers(chartMarkers(data, [], $('show-events').checked, false));
   const markers = chartMarkers(data, state.earnings, false, $('show-earnings').checked);
@@ -418,6 +466,7 @@ async function selectSymbol(symbol) {
   const {signal} = state.controller;
   state.symbol = symbol;
   state.chartData = null;
+  $('wave-context').textContent = '';
   renderTradePlan(null);
   state.earnings = [];
   for (const panel of Object.values(panels)) { panel.series.setData([]); panel.timeline.setData([]); if (panel.dots) {panel.dots.setData([]);panel.dots.setMarkers([]);} }
@@ -544,8 +593,17 @@ async function init() {
     if (state.symbol) selectSymbol(state.symbol);
   });
   document.querySelectorAll('[data-average]').forEach(input => input.addEventListener('change', () => averages[input.dataset.average]?.applyOptions({visible:input.checked})));
-  for (const id of ['show-events','show-earnings']) $(id).addEventListener('change', updateMarkers);
-  $('edit-universe').addEventListener('click', () => { $('universe-input').value = state.universe.join(', '); $('universe-error').textContent = ''; $('universe-dialog').showModal(); });
+  for (const id of ['show-events','show-earnings','show-wave']) $(id).addEventListener('change', updateMarkers);
+  function editCustom() { $('universe-input').value = saved('kenny.daily.universe',state.defaults).join(', '); $('universe-error').textContent = ''; $('universe-dialog').showModal(); }
+  function changeUniverse(key,symbols) {
+    universeKey = key; state.universe = symbols; state.items = []; state.reviewActive = false; lastWideScan = 0;
+    $('universe-select').value = key; persist('kenny.daily.universeKey',key); scan();
+  }
+  $('universe-select').addEventListener('change',e=>{
+    if (e.target.value === 'custom') {e.target.value = universeKey; editCustom();}
+    else changeUniverse(e.target.value,e.target.value === 'starter' ? state.defaults : []);
+  });
+  $('edit-universe').addEventListener('click', editCustom);
   $('close-universe').addEventListener('click', () => $('universe-dialog').close());
   $('default-universe').addEventListener('click', () => { $('universe-input').value = state.defaults.join(', '); });
   $('universe-form').addEventListener('submit', e => {
@@ -554,16 +612,19 @@ async function init() {
     if (!symbols.length || symbols.length > 100 || symbols.some(s => !/^[A-Z]{1,5}(?:[.-][A-Z])?$/.test(s))) {
       $('universe-error').textContent = 'Enter 1 to 100 valid ticker symbols.'; return;
     }
-    state.universe = symbols;
     persist('kenny.daily.universe',symbols);
     $('universe-dialog').close();
-    scan();
+    changeUniverse('custom',symbols);
   });
   try {
     const config = await request('/api/technicals/config');
     state.defaults = config.default_symbols;
-    const stored = saved('kenny.daily.universe', state.defaults);
-    state.universe = Array.isArray(stored) && stored.length && stored.length <= 100 ? stored : state.defaults;
+    const stored = saved('kenny.daily.universe', null);
+    const hasCustom = Array.isArray(stored) && stored.length && stored.length <= 100;
+    const preferred = saved('kenny.daily.universeKey',hasCustom ? 'custom' : config.default_universe || 'starter');
+    universeKey = ['sp500','nasdaq100','starter','custom'].includes(preferred) ? preferred : 'starter';
+    state.universe = isIndex() ? [] : universeKey === 'custom' && hasCustom ? stored : state.defaults;
+    $('universe-select').value = universeKey;
     renderRankings();
     if (!config.history_configured) {
       $('scan-status').textContent = 'Daily history unavailable: configure Alpaca credentials on the server.';

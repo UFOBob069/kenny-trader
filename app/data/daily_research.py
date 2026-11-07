@@ -5,6 +5,8 @@ import asyncio
 from collections import OrderedDict
 from datetime import date, datetime, timedelta, timezone
 import math
+import json
+import zlib
 import re
 from time import monotonic
 from zoneinfo import ZoneInfo
@@ -76,13 +78,17 @@ class DailyResearch:
         item = self._cache.get(key)
         if item and monotonic() < item[0]:
             self._cache.move_to_end(key)
-            return item[1]
+            return json.loads(zlib.decompress(item[1])) if key[0] == 'bars' else item[1]
         return None
 
     def _save(self, key, value, ttl=900):
+        # Hundreds of six-year histories are expensive as Python dictionaries.
+        # Retain compact bytes; only the current chart/scan batch is expanded.
+        if key[0] == 'bars':
+            value = zlib.compress(json.dumps(value, separators=(',', ':')).encode(), 1)
         self._cache[key] = (monotonic() + ttl, value)
         self._cache.move_to_end(key)
-        while len(self._cache) > 300:
+        while len(self._cache) > 1400:
             self._cache.popitem(last=False)
 
     async def _get(self, url, **kwargs):
@@ -130,7 +136,7 @@ class DailyResearch:
                     params['page_token'] = token
                 for symbol in batch:
                     result[symbol] = normalize_bars(rows[symbol], today)
-                    self._save(('bars', symbol, today, feed), result[symbol], 900 if result[symbol] else 60)
+                    self._save(('bars', symbol, today, feed), result[symbol], 3600 if result[symbol] else 60)
             return result
 
     async def current_histories(self, symbols: list[str], today: date):

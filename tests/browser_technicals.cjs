@@ -93,7 +93,9 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     trade_plan.reasons = ['No qualifying recent held signal with score at least 50.'];
   }
   if (symbol === 'IPO') summary.chart_assessment = {available:false,score:null,reason:'Chart score needs 220 usable daily bars; 100 available.'};
-  return {symbol,years,bars:visible,averages,studies,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
+  const elliott = {available:true,as_of:visible.at(-2).time,direction:'bullish',phase:'Impulse through 3',retracement2_pct:50,extension3:1.6,
+    pivots:[-50,-40,-32,-15].map((index,i)=>({time:visible.at(index).time,confirmed_on:visible.at(index+3).time,price:visible.at(index).close,kind:i%2?'high':'low',label:String(i)}))};
+  return {symbol,years,bars:visible,averages,studies,elliott,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
 
 (async () => {
@@ -177,6 +179,11 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert(await page.evaluate(()=>panels.squeeze.dots.markers().some(p=>p.color === '#edb85e') && panels.squeeze.dots.markers().some(p=>p.color === '#f47b7d')));
   assert.match(await page.locator('#atr-value').innerText(),/vs 5 sessions ago/);
   assert.match(await page.locator('#score-breakdown').innerText(),/Volatility compression/);
+  assert.match(await page.locator('#wave-context').innerText(),/bullish impulse through 3/);
+  assert.equal(await page.evaluate(()=>waveSeries.markers().length),4);
+  await page.locator('#show-wave').uncheck();
+  assert.equal(await page.evaluate(()=>waveSeries.data().length),0);
+  await page.locator('#show-wave').check();
   for (const name of ['squeeze','atr']) {
     const colored = await page.locator(`#${name}-chart canvas`).first().evaluate(canvas=>{
       const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
@@ -391,6 +398,23 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   await page.waitForFunction(()=>document.querySelector('#alert-error').textContent.includes('journal unavailable'));
   assert(await page.locator('#alert-symbols').isDisabled());
   await page.locator('#close-alerts').click();
+  const members = Array.from({length:503},(_,i)=>`Z${String.fromCharCode(65+Math.floor(i/26),65+i%26)}`);
+  const batches = [], baseline = fixture('AAPL',1).summary;
+  await page.route('**/api/technicals/universes/*',route=>route.fulfill({json:{name:'Test index',as_of:'2026-11-06',symbols:members.slice(0,route.request().url().endsWith('sp500')?503:101)}}));
+  await page.route('**/api/technicals/scan',route=>{
+    const batch = route.request().postDataJSON().symbols.split(' '); batches.push(batch);
+    if(batch[0]===members[50]) return route.fulfill({status:503,json:{detail:'Batch unavailable'}});
+    return route.fulfill({json:{items:batch.map(symbol=>({...baseline,symbol,chart_assessment:{available:symbol!==members[0]}})),feed:'iex',current_day_count:0,generated_at:new Date().toISOString()}});
+  });
+  await page.locator('#universe-select').selectOption('sp500');
+  await page.waitForFunction(()=>document.querySelector('#scan-status').textContent.includes('503 requested · 477 scored · 1 insufficient history · 25 failed'));
+  assert.deepEqual(batches.flat(),members);
+  assert(batches.every(b=>b.length<=25));
+  await page.locator('#universe-select').selectOption('nasdaq100');
+  await page.waitForFunction(()=>document.querySelector('#scan-status').textContent.includes('101 requested · 75 scored'));
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('#scan-status').textContent.includes('101 requested'));
+  assert.equal(await page.locator('#universe-select').inputValue(),'nasdaq100');
   assert.deepEqual(errors,[]);
   console.log(JSON.stringify({passed:true,coloredPixels,screenshots:output,checks:['unconfigured state','daily chart pixels','BB/Donchian/Keltner overlays and toggles','squeeze dots and momentum pixels','ATR pixels and hover readouts','synchronized ranges and mobile date coordinates','arbitrary ticker chart assessment without setup qualification','insufficient history is unavailable not zero','current-day provisional labels','background and manual price refresh','review progress and zoom preserved on refresh','failed refresh hides trade plan','direction and score filters','5 year daily chart','AVWAP anchor selection and overlay','review queue and keyboard actions','saved picks and progress','earnings','fast ticker race','provider error','mobile 390 and 320','saved universe and range']}));
   await browser.close();

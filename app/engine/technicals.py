@@ -9,6 +9,7 @@ from ta.trend import SMAIndicator
 from ta.volatility import AverageTrueRange
 from app.engine.anchored_vwap import anchored_vwap, discovery_context, public_avwap
 from app.engine.volatility import add_volatility, volatility_context, volatility_score, volatility_payload
+from app.engine.elliott import wave_context
 
 
 def frame(bars: list[dict], studies=True) -> pd.DataFrame:
@@ -174,6 +175,7 @@ def chart_payload(bars: list[dict], years: int, today: date, anchor='swing_high'
     vwap = anchored_vwap(data, anchor, anchor_date, earnings)
     return {
         'studies': volatility_payload(visible),
+        'elliott': wave_context(data, today),
         'bars': visible[['time', 'open', 'high', 'low', 'close', 'volume']].to_dict('records'),
         'averages': {str(w): [{'time': r.time, 'value': number(getattr(r, f'sma{w}'))}
                             for r in visible.itertuples() if pd.notna(getattr(r, f'sma{w}'))] for w in (20, 50, 200)},
