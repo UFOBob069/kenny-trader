@@ -52,7 +52,7 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
     close:visible.at(-1).close,change_pct:direction === 'bullish' ? 2.34 : -1.54,history_bars:bars.length,
     sma:Object.fromEntries(Object.entries(averages).map(([w,a])=>[w,a.at(-1).value])),trigger:event,signals:[event],
     warnings:['Synthetic browser test fixture; not market data.'],
-    breakdown:[['Recent held trigger',25,25,'SMA 20 / 50'],['Trend alignment + slope',15,15,'Price / 20 / 50 / 200'],
+    breakdown:[['Recent held trigger',25,25,'SMA 20 / 50'],['Trend alignment + slope',10,10,'Price / 20 / 50 / 200'],['Elliott wave context',2,5,'Standard impulse through 3'],
       ['Trigger-day volume',12,15,'1.8x prior 20 sessions'],['63-session strength vs SPY',6.5,10,'6.5 percentage points'],
       ['SPY trend agreement',10,10,'Price / 200 and 50 / 200'],['Peak anchored VWAP',10,10,'Above rising anchor'],
       ['Volatility compression',5,5,'Narrow bands, falling ATR and squeeze on'],['Donchian breakout confirmation',5,5,'Beyond prior range after compression'],
@@ -94,6 +94,8 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   }
   if (symbol === 'IPO') summary.chart_assessment = {available:false,score:null,reason:'Chart score needs 220 usable daily bars; 100 available.'};
   const elliott = {available:true,as_of:visible.at(-2).time,direction:'bullish',phase:'Impulse through 3',retracement2_pct:50,extension3:1.6,
+    degree:'Standard',sessions:260,evidence:{bullish:2,bearish:0,detail:'Standard wave 3; territory holds.'},
+    degrees:[{degree:'Standard',available:true,direction:'bullish',phase:'Impulse through 3',swing_count:27,reason:'Territory holds.'},{degree:'Short',available:false,swing_count:46,reason:'No impulse.'}],
     pivots:[-50,-40,-32,-15].map((index,i)=>({time:visible.at(index).time,confirmed_on:visible.at(index+3).time,price:visible.at(index).close,kind:i%2?'high':'low',label:String(i)}))};
   return {symbol,years,bars:visible,averages,studies,elliott,events:summary.signals,summary,avwap,trade_plan,current_day,feed:'sip',adjustment:'split',interval:'1D'};
 }
@@ -180,8 +182,14 @@ function fixture(symbol, years, anchorMode='swing_high', anchorDate='') {
   assert.match(await page.locator('#atr-value').innerText(),/vs 5 sessions ago/);
   assert.match(await page.locator('#score-breakdown').innerText(),/Volatility compression/);
   assert.match(await page.locator('#wave-context').innerText(),/bullish impulse through 3/);
+  assert.match(await page.locator('#wave-context').innerText(),/Bullish \+2 \/ Bearish \+0/);
+  await page.locator('#wave-details summary').click();
+  assert.match(await page.locator('#wave-evidence').innerText(),/Short: 46 pivots/);
+  await page.locator('#wave-details summary').click();
   assert.equal(await page.evaluate(()=>waveSeries.markers().length),4);
   await page.locator('#show-wave').uncheck();
+  assert.equal(await page.locator('#wave-details').isVisible(),false);
+  assert.match(await page.locator('#score-breakdown').innerText(),/Elliott wave context/);
   assert.equal(await page.evaluate(()=>waveSeries.data().length),0);
   await page.locator('#show-wave').check();
   for (const name of ['squeeze','atr']) {

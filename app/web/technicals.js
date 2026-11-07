@@ -387,7 +387,11 @@ function updateMarkers() {
   const pivots = show && wave?.available ? wave.pivots.filter(p=>p.time >= data.bars[0]?.time) : [];
   waveSeries.setData(pivots.map(p=>({time:p.time,value:p.price})));
   waveSeries.setMarkers(pivots.map(p=>({time:p.time,position:p.kind==='high'?'aboveBar':'belowBar',shape:'circle',size:.5,color:'#e9a5cb',text:`EW ${p.label}`})));
-  $('wave-context').textContent = !show || !wave ? '' : `Elliott candidate · ${wave.available ? `${wave.direction} ${wave.phase.toLowerCase()} · W2 retraced ${wave.retracement2_pct}% · W3 ${wave.extension3}× W1` : wave.reason} · Completed sessions through ${wave.as_of || 'unavailable'}`;
+  const evidence = wave?.evidence;
+  const contribution = evidence ? ` · Bullish +${evidence.bullish} / Bearish +${evidence.bearish} (max 5)` : '';
+  $('wave-context').textContent = !show || !wave ? '' : `Elliott candidate · ${wave.degree || 'Standard'} · ${wave.available ? `${wave.direction} ${wave.phase.toLowerCase()} · W2 retraced ${wave.retracement2_pct}%${Number.isFinite(wave.extension3) ? ` · W3 ${wave.extension3}× W1` : ''}` : wave.reason}${contribution} · Completed sessions through ${wave.as_of || 'unavailable'}`;
+  $('wave-details').hidden = !(show && evidence);
+  $('wave-evidence').textContent = show && evidence ? [evidence.detail, `${wave.sessions} completed sessions.`, ...wave.degrees.map(d=>`${d.degree}: ${d.swing_count} pivots · ${d.available ? `${d.direction} ${d.phase.toLowerCase()}. ` : ''}${d.reason}`)].join('\n') : '';
   $('wave-context').title = pivots.map(p=>`${p.label}: ${p.time} at $${price(p.price)}, pivot confirmed ${p.confirmed_on}`).join('\n');
   candles.setData(data.bars);
   candles.setMarkers(chartMarkers(data, [], $('show-events').checked, false));
@@ -467,6 +471,7 @@ async function selectSymbol(symbol) {
   state.symbol = symbol;
   state.chartData = null;
   $('wave-context').textContent = '';
+  $('wave-details').hidden = true;
   renderTradePlan(null);
   state.earnings = [];
   for (const panel of Object.values(panels)) { panel.series.setData([]); panel.timeline.setData([]); if (panel.dots) {panel.dots.setData([]);panel.dots.setMarkers([]);} }

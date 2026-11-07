@@ -1,9 +1,10 @@
 # Daily Technicals: Research and Scoring
 
-Research date: October 17, 2026. Updated October 19, 2026.
-Model version: `daily-v4-volatility`; chart assessment: `chart-v2-volatility`.
-The added volatility evidence reallocates 15 points within the existing 100-point
-scale. Scores from earlier model versions are not directly comparable.
+Research date: October 17, 2026. Updated November 7, 2026.
+Model version: `daily-v5-elliott`; chart assessment: `chart-v3-elliott`.
+Five points previously allocated to trend alignment now fund Elliott context.
+Scores from earlier model versions are not directly comparable. Existing alert
+deduplication includes the model version, so a still-held setup can be surfaced anew.
 
 ## Technical Alert Watchlist
 
@@ -21,18 +22,30 @@ failed batches, eligible held setups and filtered rows are different counts.
 
 ### Elliott Wave Overlay
 
-The overlay is a **candidate** single-degree interpretation of the latest 260
-completed daily bars. A unique swing extreme needs three bars on either side;
-opposite swings must differ by at least 3% and 1.5 ATR. The latest extreme can
+The overlay compares two fixed **candidate** interpretations of up to 260
+completed daily bars (minimum 30). Standard: three confirmation bars on either
+side, minimum 3% and 1.5 ATR reversal. Short: two bars, 2% and 1 ATR. The latest extreme can
 be replaced; pivot dates are not the dates at which the count became knowable.
 Hover over the count summary for confirmation dates. The count recognizes
-impulses through waves 3, 4 or 5 and a simple subsequent A/B/C candidate. It
+developing 1-2 counts, impulses through waves 3, 4 or 5, and simple A/B/C candidates. It
 uses the [standard impulse rules](https://www.elliottwave.com/articles/elevate-your-elliott-wave-analysis/):
 wave 2 cannot break the origin, wave 3 cannot be shortest of 1/3/5, and wave 4
 must not overlap wave 1. This implementation also requires a non-truncated fifth;
 diagonals, nested degrees and complex corrections are not modeled. No recent
 match is reported explicitly. This is descriptive and unvalidated, not a price
-target or win probability. It does not change scores, alerts, or order behavior.
+target or win probability. The plotted count favors a standard established count,
+then a short established count, then a developing count. Wave evidence lists
+both interpretations, the number of pivots and the reason for neutral evidence.
+
+Directional contribution (heuristic, not a forecast): wave 3 earns 2 points;
+after wave 4 the last completed close must recover more than half its pullback
+for 3 points, or clear the wave 3 extreme for 5. Bearish rules mirror bullish.
+Use the standard scale when it earns points; short-scale-only credit is capped
+at 2. Never add the scales. Opposing active 2/3/4 counts, stale data (>5 calendar
+days), and no qualifying evidence earn zero. Developing 1-2, wave 5 and A/B/C
+are context, not standalone continuation or reversal signals. Only completed
+bars count; showing or hiding the overlay does not change scores. These points
+can change research ranks/thresholds, not create eligible triggers or orders.
 
 ### Alert Setup
 
@@ -125,7 +138,8 @@ or a claim that the listed securities currently have sufficient liquidity.
 | Component | Maximum | Exact rule |
 | --- | ---: | --- |
 | Recent held trigger | 25 | Best single trigger base weight: price/200 = 30; 252-day range = 28; 50/200 or 55-day range = 25; AVWAP reclaim/loss = 24; 20/200 = 22; 20/50 or 20-day range = 18. Multiply by `(1 - age/10) * 25/30`. Do not add correlated crosses. |
-| Trend alignment and slopes | 15 | 3 each for directional price/20, 20/50, 50/200 alignment, and directional 50- and 200-SMA changes over 20 sessions. |
+| Trend alignment and slopes | 10 | 2 each for directional price/20, 20/50, 50/200 alignment, and directional 50- and 200-SMA changes over 20 sessions. |
+| Elliott wave context | 5 | Matching-direction completed-bar continuation evidence, as specified above; no stacking across scales. |
 | Trigger-day volume | 15 | `clamp((volume / prior-20-session-average - 1) * 15, 0, 15)`. Full points at 2x. |
 | Relative strength vs SPY | 10 | Difference between stock and SPY 63-session price returns, in percentage points in the signal direction; clamped to 0-10. Dates must match. |
 | SPY regime agreement | 10 | 5 each for SPY price/200 and 50/200 alignment in the signal direction. |
@@ -145,7 +159,7 @@ These are transparent initial heuristics, not fitted or backtested parameters.
 
 ### Any-Ticker Chart Assessment
 
-`chart-v2-volatility` evaluates every supported ticker opened in the chart, independent of
+`chart-v3-elliott` evaluates every supported ticker opened in the chart, independent of
 scan-universe membership. The displayed **Chart score** is the stronger of the
 bullish and bearish evidence totals using the same weights and penalties above,
 but without the final no-trigger-to-zero override. Both directional totals are

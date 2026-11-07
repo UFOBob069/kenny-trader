@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.config import settings
-from app.engine.technicals import analyze, chart_payload
+from app.engine.technicals import SCORE_VERSION, analyze, chart_payload
 from app.engine.trade_plan import daily_trade_plan
 from app.data.market_hours import market_session
 
@@ -265,7 +265,7 @@ class DailyResearch:
                 items.append(self.current_context(item, current[symbol]))
         items.sort(key=lambda i: (i['eligible'], i['score']), reverse=True)
         return dict(items=items, symbols=symbols, generated_at=datetime.now(timezone.utc).isoformat(),
-                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version='daily-v4-volatility',
+                    feed=settings.alpaca_data_feed, earnings_status=calendar['status'], score_version=SCORE_VERSION,
                     current_day_count=sum(i['provisional'] for i in items), refresh_seconds=60,
                     review_date=max((i['as_of'] for i in items if i['as_of']), default=today.isoformat()))
 

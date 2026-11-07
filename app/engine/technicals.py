@@ -11,6 +11,9 @@ from app.engine.anchored_vwap import anchored_vwap, discovery_context, public_av
 from app.engine.volatility import add_volatility, volatility_context, volatility_score, volatility_payload
 from app.engine.elliott import wave_context
 
+SCORE_VERSION = 'daily-v5-elliott'
+CHART_VERSION = 'chart-v3-elliott'
+
 
 def frame(bars: list[dict], studies=True) -> pd.DataFrame:
     data = pd.DataFrame(bars)
@@ -61,10 +64,13 @@ def events(data: pd.DataFrame) -> list[dict]:
 def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
             earnings: list[dict] | None = None) -> dict:
     data = frame(bars)
-    base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None, score_version='daily-v4-volatility',
+    wave = wave_context(data, today)
+    evidence = wave['evidence']
+    base = dict(symbol=symbol, as_of=bars[-1]['time'] if bars else None, score_version=SCORE_VERSION,
+                elliott=dict(phase=wave['phase'], degree=wave['degree'], as_of=wave['as_of'], evidence=evidence),
                 eligible=False, score=0, direction='neutral', signals=[], breakdown=[], warnings=[],
                 volatility=volatility_context(data),
-                chart_assessment=dict(version='chart-v2-volatility', available=False, score=None,
+                chart_assessment=dict(version=CHART_VERSION, available=False, score=None,
                     reason=f'Chart score needs 220 usable daily bars; {len(data)} available.'))
     if len(data) < 220:
         return {**base, 'warnings': ['At least 220 usable daily bars are required.'],
@@ -135,7 +141,8 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
         penalty_earnings = 10 if days_to_earnings is not None and days_to_earnings <= 7 else 0
         components = [
             ('Recent held trigger', trigger_points * 25 / 30, 25, trigger['label'] if trigger else 'No held trigger in 10 sessions'),
-            ('Trend alignment + slope', (alignment + slope) * .6, 15, 'Price / 20 / 50 / 200 and 20-session slopes'),
+            ('Trend alignment + slope', (alignment + slope) * .4, 10, 'Price / 20 / 50 / 200 and 20-session slopes'),
+            ('Elliott wave context', evidence[side], 5, evidence['detail']),
             ('Trigger-day volume', volume_points * .75, 15, f'{number(vol)}x prior 20 sessions' if pd.notna(vol) else 'Unavailable'),
             ('63-session strength vs SPY', relative_points, 10, f'{number(relative)} percentage points' if relative is not None else 'Unavailable'),
             ('SPY trend agreement', market_points, 10, 'Price / 200 and 50 / 200'),
@@ -151,7 +158,7 @@ def analyze(symbol: str, bars: list[dict], benchmark: list[dict], today: date,
         assessments.append(dict(direction=side, score=points, breakdown=breakdown))
         scores.append(dict(direction=side, score=points if trigger else 0, trigger=trigger, breakdown=breakdown))
     chosen = max(scores, key=lambda s: (s['score'], s['trigger']['time'] if s['trigger'] else ''))
-    chart_assessment = dict(version='chart-v2-volatility', available=True, **max(assessments, key=lambda s: s['score']),
+    chart_assessment = dict(version=CHART_VERSION, available=True, **max(assessments, key=lambda s: s['score']),
                             bullish_score=assessments[0]['score'], bearish_score=assessments[1]['score'])
     return {**base, **chosen, 'eligible': bool(chosen['trigger']) and not stale,
             'chart_assessment': chart_assessment,

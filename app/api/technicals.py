@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.data.daily_research import DEFAULT_SYMBOLS, ET, DailyResearch, ResearchDataError, symbols_from_text
 from app.engine.technical_alerts import AlertConfig, TechnicalAlerts
+from app.engine.technicals import SCORE_VERSION
 from app.data.index_universes import IndexUniverses
 from app.db.technical_alerts import AlertStorageError
 
@@ -73,7 +74,7 @@ def ticker(value):
 def configuration():
     return dict(default_symbols=DEFAULT_SYMBOLS, default_universe='nasdaq100', feed=settings.alpaca_data_feed,
                 history_configured=bool(settings.alpaca_api_key and settings.alpaca_secret_key),
-                earnings_configured=bool(settings.finnhub_api_key), score_version='daily-v4-volatility', refresh_seconds=60)
+                earnings_configured=bool(settings.finnhub_api_key), score_version=SCORE_VERSION, refresh_seconds=60)
 
 
 @router.get('/universes/{key}')

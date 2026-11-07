@@ -164,6 +164,18 @@ and simple correction candidates, confirmation dates and explicit no-count state
 Do not change setup scores, alerts, trade plans or paper execution without evidence
 that the count adds predictive value. See [methodology](../docs/DAILY_TECHNICALS.md).
 
+### D023 / 2026-11-07: Elliott Evidence in Technical Scores
+
+David requested Elliott context in technical scoring.
+Supersede D022's overlay-only choice: retain the standard swing scale, add a
+shorter scale and show developing 1-2 counts without scoring them. Checking
+QQQ/AAPL/SPY/NVDA at 260, 520 and 1,000 sessions produced more pivots but did
+not produce a current standard count. This is a coverage check, not a backtest.
+Allocate 5/100 points from trend to directional continuation evidence; no
+standalone wave triggers or orders. Detailed weights and exclusions are in the
+[methodology](../docs/DAILY_TECHNICALS.md). Evaluate incremental value against
+v4 using forward outcomes before increasing this weight.
+
 ### Remaining Deferred Decisions
 
 - Exact split of implementation time between morning reliability and daily polish:
