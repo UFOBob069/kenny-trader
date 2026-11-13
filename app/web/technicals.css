@@ -18,8 +18,22 @@ nav { display:flex; gap:24px; align-items:center; }
 nav a { color:var(--muted); padding:9px 0; }
 nav [aria-current] { color:var(--text); box-shadow:0 2px var(--cyan); }
 .research-label { margin-left:auto; color:var(--muted); font-size:10px; }
+.pinned-watchlist { position:sticky; top:0; z-index:12; background:var(--bg); border-bottom:1px solid var(--line); padding:6px 16px; }
+.pinned-toolbar { display:flex; align-items:center; gap:8px; min-height:32px; }
+.pinned-toolbar h2 { font-size:14px; }
+#watchlist-status { flex:1; min-width:0; color:var(--muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#pinned-tickers { display:flex; gap:8px; overflow-x:auto; padding:5px 0; }
+.pinned-ticker { flex:0 0 220px; width:220px; height:112px; text-align:left; padding:7px 10px; overflow:hidden; }
+.pinned-head { display:flex; justify-content:space-between; gap:8px; }
+.pinned-head b { font-size:14px; }
+.pinned-head .hold { color:#edc66d; }
+.pinned-head .muted { color:var(--muted); }
+.pinned-score { display:block; font-size:11px; }
+.pinned-reason { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:11px; height:32px; margin-top:2px; }
+.pinned-ticker small { font-size:10px; color:var(--muted); }
+.pinned-disclosure { color:var(--muted); font-size:10px; line-height:1.3; padding-block:2px; }
 main { display:grid; grid-template-columns:320px minmax(0,1fr); min-height:calc(100vh - 54px); }
-.scanner { border-right:1px solid var(--line); display:flex; flex-direction:column; height:calc(100vh - 54px); position:sticky; top:0; min-height:600px; }
+.scanner { border-right:1px solid var(--line); display:flex; flex-direction:column; height:calc(100vh - var(--pinned-height, 0px)); position:sticky; top:var(--pinned-height, 0px); min-height:600px; }
 .section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 16px 8px; }
 .icon-button { width:32px; height:32px; min-width:32px; padding:6px; display:inline-flex; align-items:center; justify-content:center; background:transparent; }
 .icon-button svg { width:17px; height:17px; }

@@ -544,6 +544,11 @@ function moveSelection(delta) {
 }
 
 async function init() {
+  initTechnicalWatchlist({request, escapeHtml, selectSymbol:symbol => {
+    state.reviewActive = false;
+    renderRankings();
+    selectSymbol(symbol);
+  }, currentSymbol:() => state.symbol});
   let reportGeneration = 0;
   async function loadOutcomes() {
     const gen = ++reportGeneration;
@@ -604,7 +609,7 @@ async function init() {
   $('anchor-mode').addEventListener('change',changeAnchor);
   $('anchor-date').addEventListener('change',changeAnchor);
   document.addEventListener('keydown',event => {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest('input,textarea,select,[contenteditable=true]') || $('universe-dialog').open || $('alerts-dialog').open) return;
+    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest('input,textarea,select,[contenteditable=true]') || document.querySelector('dialog[open]')) return;
     if (event.key === 'ArrowRight') {event.preventDefault();moveSelection(1);}
     if (event.key === 'ArrowLeft') {event.preventDefault();moveSelection(-1);}
     if (state.reviewActive && ['d','s','x'].includes(event.key.toLowerCase())) {

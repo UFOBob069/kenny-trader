@@ -371,3 +371,17 @@ matching next-session open and horizon close. Use split-adjusted prices. Excess
 return is stock minus SPY for bullish signals and SPY minus stock for bearish.
 These are research labels, not fills, stop/target simulations, or net returns.
 Small samples and overlapping market exposures do not establish predictive skill.
+## Pinned watchlist
+
+The top watchlist is independent of the scan universe, saved review picks, and
+alert monitoring. Paste up to 100 tickers in display order, or pin the current
+chart. Removing a ticker from the editor removes its pin; an empty list clears
+all pins. It persists in browser local storage, not across devices.
+
+Each ticker opens its chart and refreshes its assessment once a minute while
+the page is visible. Buy/Sell require an eligible bullish/bearish conditional
+plan; Hold means wait, not advice to retain a position. Insufficient, stale, or
+failed data is unavailable. A Setup score is shown for eligible triggers;
+otherwise Chart identifies the broader directional score. Provisional bars
+remain labeled. These are research labels, do not check holdings, do not place
+orders, and do not call an LLM.
